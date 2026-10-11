@@ -2,12 +2,30 @@ import json
 import tempfile
 import threading
 import unittest
+import time
+from unittest.mock import patch
 from pathlib import Path
 from job_radar_ai.providers import Provider, ProviderError, bounded_process
 from job_radar_ai.contracts import SCHEMAS, validate
 
 
 class ProviderTests(unittest.TestCase):
+    @patch('job_radar_ai.providers.executable',return_value=['claude.exe'])
+    def test_claude_subscription_auth_is_required_and_default_status_is_json(self,binary):
+        with tempfile.TemporaryDirectory() as temp:
+            provider=Provider('claude',Path(temp))
+            for method,expected in [('claude.ai',True),('api_key',False),('api_key_helper',False),('third_party',False),('oauth_token',False),('unknown',False)]:
+                with patch('job_radar_ai.providers.bounded_process',return_value=(0,json.dumps({'loggedIn':True,'authMethod':method}),'')) as process:
+                    self.assertEqual(provider.status()['authenticated'],expected)
+                    self.assertEqual(process.call_args.args[0],['claude.exe','auth','status'])
+    @patch('job_radar_ai.providers.executable',return_value=['codex.exe'])
+    @patch.object(Provider,'status',return_value={'authenticated':False,'status':'Subscription login required'})
+    @patch('job_radar_ai.providers.bounded_process')
+    def test_persisted_api_key_or_unknown_auth_never_starts_inference(self,process,status,binary):
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaises(ProviderError):
+                Provider('codex',Path(temp)).run('probe','Ready?',{})
+        process.assert_not_called()
     def test_plan_rejects_extra_fields_and_excessive_queries(self):
         with self.assertRaises(ValueError):
             validate('plan', {'shell': 'rm -rf'})
@@ -37,6 +55,17 @@ class ProviderTests(unittest.TestCase):
         stop.set()
         with self.assertRaises(ProviderError):
             bounded_process([sys.executable, '-c', 'print(1)'], cancel=stop)
+
+    def test_cancel_terminates_an_already_running_process(self):
+        import sys
+        stop=threading.Event();timer=threading.Timer(.15,stop.set);timer.start()
+        started=time.monotonic()
+        try:
+            with self.assertRaisesRegex(ProviderError,'Canceled'):
+                bounded_process([sys.executable,'-c','import time;time.sleep(20)'],cancel=stop)
+            self.assertLess(time.monotonic()-started,3)
+        finally:
+            timer.join()
 
     def test_claude_error_is_not_success(self):
         with self.assertRaises(ProviderError):

@@ -12,6 +12,22 @@ from .store import now, normalize_weights
 DEFAULT_BUDGETS = {'searches': 3, 'pages': 1, 'details': 5, 'requests': 8, 'spacing': 5}
 
 
+def profile_signature(profile):
+    import json
+    keys = ['cv_text', 'objectives', 'seniority', 'leadership', 'industries', 'strengths', 'city', 'region',
+            'commute', 'relocation', 'workplace', 'salary', 'hours', 'unwanted', 'hard_requirements', 'weights', 'followup_answers', 'interpreted', '_preference_revision']
+    return hashlib.sha256(json.dumps({k:profile.get(k,0 if k=='_preference_revision' else None) for k in keys},sort_keys=True).encode()).hexdigest()
+
+
+EVALUATION_TASK = ('Analyze EVERY supplied full description, not titles. Score each preference dimension from 0 to 100, or null when unknown. '
+    'Produce separate ATS readiness and HR assessment, exact quotes from original CV and job text, truthful CV changes. '
+    'The hard_requirements array refers ONLY to nonempty lines in profile.hard_requirements: copy each exact line once; '
+    'if that field is empty return hard_requirements: []. Do NOT put employer job qualifications in that array: assess those in ATS/HR and evidence. '
+    'Unknown salary and working arrangements have null scores and require verification. Never claim a proprietary ATS score. '
+    'Distinguish domain, transferable and stretch fit. CV quotes must be exact substrings of cv_text; use an empty cv_quote where evidence is missing. '
+    'Your prose and recommendation must agree with the structured evidence. All jobs remain visible.')
+
+
 def folded(text):
     return ' '.join(str(text).casefold().split())
 
@@ -41,6 +57,7 @@ def prepare_evaluation(value, job, profile):
     value['weighted_score'] = round(sum(weights[k]*v for k,v in supported.items()) / scored_weight, 1) if scored_weight else None
     value['scored_weight'] = round(scored_weight, 1)
     value['evaluated_at'] = now()
+    value['profile_signature'] = profile_signature(profile)
     value['recommend'] = value['recommend'] and value['category'] != 'unrelated' and bool(value['evidence']) and not any(item['status'] == 'violated' for item in value['hard_requirements']) and job.get('availability') != 'closed_banner_observed'
     return value
 
@@ -57,6 +74,8 @@ class Hunter:
             profile = self.store.get('profile')
             if not profile or not profile.get('consent') or not profile.get('linkedin_consent'):
                 raise ValueError('Finish onboarding and confirm provider processing / LinkedIn guest use first.')
+            if len(profile.get('cv_text', '')) < 30:
+                raise ValueError('Upload a readable CV first.')
             run_id = self.store.start_run(profile['provider'])
             if run_id is None:
                 return None
@@ -65,11 +84,45 @@ class Hunter:
             self.thread.start()
             return run_id
 
+    def review(self, job_id):
+        with self.lock:
+            original_profile = self.store.get('profile')
+            profile = {**original_profile,'_preference_revision':self.store.preference_revision()} if original_profile else None
+            job = next((j for j in self.store.jobs() if j['id']==job_id), None)
+            if not profile or not profile.get('consent') or not job or not job.get('description'):
+                raise ValueError('A stored full description and provider-processing consent are required.')
+            run_id = self.store.start_run(profile['provider'])
+            if run_id is None:
+                return None
+            self.cancel = threading.Event()
+            def work():
+                payload = {'new_jobs':0,'previously_seen':1,'descriptions':0,'evaluated':0,'requests':0,'cache_hits':1,
+                           'job_ids':[job_id],'sources':[{'source':'Stored description','status':'success','count':1}],'warnings':[]}
+                try:
+                    self.store.update_run(run_id,'AI is reassessing a stored description',payload)
+                    ai = Provider(profile['provider'],self.root/'.private/ai')
+                    result = ai.run('evaluation',EVALUATION_TASK,{'profile':profile,'learned_preferences':self.store.get('learned',[]),
+                                   'feedback':self.store.feedback(),'jobs':[job]},cancel=self.cancel)
+                    if len(result['evaluations']) != 1:
+                        raise ValueError('AI must assess this one verified identity exactly once.')
+                    self.store.evaluate(job_id,prepare_evaluation(result['evaluations'][0],job,profile))
+                    payload['evaluated']=1
+                    payload['report']=result['report']
+                    self.store.update_run(run_id,'Stored description reviewed; no new source request',payload,'completed')
+                    self.store.set('provider_verified:'+profile['provider'],{'at':now(),'inference':True})
+                except Exception as exc:
+                    reason = str(exc) if isinstance(exc,(ValueError,ProviderError)) else 'AI review failed; vacancy retained.'
+                    payload['warnings'].append(reason)
+                    self.store.update_run(run_id,reason,payload,'canceled' if self.cancel.is_set() else 'failed')
+            self.thread = threading.Thread(target=work,daemon=True)
+            self.thread.start()
+            return run_id
+
     def execute(self, run_id, cancel, ai=None, source=None):
         counters = {'new_jobs': 0, 'previously_seen': 0, 'descriptions': 0, 'evaluated': 0,
                     'sources': [], 'warnings': [], 'job_ids': [], 'description_failures': []}
         try:
-            profile = self.store.get('profile')
+            profile = {**self.store.get('profile'),'_preference_revision':self.store.preference_revision()}
             budgets = self.store.get('budgets', DEFAULT_BUDGETS)
             ai = ai or Provider(profile['provider'], self.root / '.private/ai')
             source = source or LinkedIn(self.root, self.store, cancel, budgets)
@@ -91,12 +144,18 @@ class Hunter:
                 for preference in learning['preferences']:
                     if not preference['feedback_ids'] or not set(preference['feedback_ids']) <= known:
                         raise ValueError('Learning referenced unknown feedback.')
-                    if len(set(preference['feedback_ids'])) == 1 and preference['confidence'] == 'repeated':
+                    jobs_behind_feedback={f['job']['id'] for f in self.store.feedback() if f['id'] in preference['feedback_ids']}
+                    if len(jobs_behind_feedback) < 2 and preference['confidence'] == 'repeated':
                         preference['confidence'] = 'tentative'
-                self.store.set('learned', learning['preferences'])
+                explicit=[p for p in self.store.get('learned',[]) if p.get('confidence')=='explicit' and not p.get('feedback_ids')]
+                learned=(explicit+[p for p in learning['preferences'] if p['text'] not in {e['text'] for e in explicit}])[:20]
+                if learned!=self.store.get('learned',[]):
+                    self.store.preference_revision(bump=True)
+                    profile['_preference_revision']=self.store.preference_revision()
+                self.store.set('learned', learned)
                 self.store.set('learning_explanation', learning['explanation'])
-                context['learned_preferences'] = learning['preferences']
-            plan = call('plan', f'Generate a dynamic LinkedIn-first strategy, multiple role families including transferable/stretch options. No fixed title list. Provide up to {budgets["searches"]} queries and explain each. Region/language follow profile. Choose optional official web research only when valuable. Public queries must contain no personal identifiers.', context)
+                context['learned_preferences'] = learned
+            plan = call('plan', f'Generate a dynamic LinkedIn-first strategy, multiple role families including transferable/stretch options. No fixed title list. Provide up to {budgets["searches"]} concise natural-language queries under 100 characters and explain each; avoid long Boolean expressions. Region/language follow profile. Choose optional official web research only when valuable. Public queries must contain no personal identifiers.', context)
             counters['plan'] = plan
             self.store.update_run(run_id, 'Searching LinkedIn with the AI plan', counters)
             candidates = {}
@@ -147,9 +206,14 @@ class Hunter:
                 triage = call('triage', f'Select at most {budgets["details"]} verified candidate IDs for deeper description review. You may propose exploratory searches within the remaining query budget. Never create job IDs.',
                               {**context, 'candidates': list(candidates.values()), 'remaining_searches': budgets['searches']-search_count})
                 if triage['expand_queries']:
+                    original_count=len(candidates)
                     search_queries(triage['expand_queries'])
                 else:
+                    original_count=len(candidates)
                     search_queries(plan['queries'][len(initial):])
+                if len(candidates)>original_count:
+                    triage=call('triage',f'Choose at most {budgets["details"]} detail IDs from ALL current candidates including new discoveries. No further search expansion is available; return expand_queries: [].',
+                                {**context,'candidates':list(candidates.values()),'remaining_searches':0})
             selected = (triage['detail_ids'] if triage else [])[:budgets['details']]
             if any(job_id not in candidates for job_id in selected):
                 raise ValueError('AI selected an unknown job identity.')
@@ -177,13 +241,14 @@ class Hunter:
                                 {'queries': plan['research_queries'], 'role_families': plan['role_families']}, research=True)
                 telemetry = ai.telemetry
                 counters['research'] = {'summary': research['summary'], 'limitations': research['limitations'], 'web_calls': telemetry.get('web_calls', 0)}
-                observed = {urlsplit(url)._replace(query='', fragment='').geturl() for url in telemetry.get('observed_urls', [])}
+                pages=telemetry.get('fetched_pages',{})
                 accepted = 0
                 for result in research['jobs']:
                     parsed = urlsplit(result['url'])
                     canonical = parsed._replace(query='', fragment='').geturl()
-                    if parsed.scheme != 'https' or not parsed.hostname or parsed.username or canonical not in observed or not telemetry.get('web_calls') or not result['description'] or folded(result['evidence_quote']) not in folded(result['description']):
-                        counters['warnings'].append('Supplementary result could not be tied to an observed provider web retrieval; not imported as verified.')
+                    retrieved=pages.get(canonical,'')
+                    if parsed.scheme != 'https' or not parsed.hostname or parsed.username or not retrieved or not result['description'] or not result['evidence_quote'].strip() or folded(result['evidence_quote']) not in folded(retrieved) or folded(result['description']) not in folded(retrieved):
+                        counters['warnings'].append('Provider web search/fetch did not expose complete source text for evidence verification; supplementary vacancy not imported.')
                         continue
                     job = {**result, 'id': 'web:' + hashlib.sha256(canonical.encode()).hexdigest()[:24], 'source': 'AI web research', 'availability': 'unknown', 'description_obtained': now(), 'evidence': result['evidence_quote']}
                     new = self.store.upsert_job(job, run_id)
@@ -192,7 +257,7 @@ class Hunter:
                     accepted += 1
                 counters['sources'].append({'source': 'AI web research', 'status': 'success' if accepted else 'unverified', 'count': accepted, 'reason': '; '.join(research['limitations']) or 'Verified tool retrieval required', 'at': now()})
             if descriptions:
-                analysis = call('evaluation', 'Analyze EVERY supplied full description, not titles. Produce separate ATS readiness and HR assessment, exact quotes from original CV and job text, truthful CV changes. Copy each hard requirement line exactly and assess it. Use null for unsupported scores, especially salary/remote facts. Never proprietary ATS percentages. Distinguish domain, transferable and stretch fit. All jobs remain visible.',
+                analysis = call('evaluation', EVALUATION_TASK,
                                 {**context, 'jobs': list(descriptions.values())})
                 evaluated_ids = [item['job_id'] for item in analysis['evaluations']]
                 if len(set(evaluated_ids)) != len(evaluated_ids) or set(evaluated_ids) != set(descriptions):

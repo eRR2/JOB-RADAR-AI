@@ -134,13 +134,13 @@ class Provider:
         if not binary:
             return {'installed': False, 'authenticated': False, 'status': 'Not installed', 'web': 'Not verified'}
         try:
-            command = ['login', 'status'] if self.name == 'codex' else ['auth', 'status', '--json']
+            command = ['login', 'status'] if self.name == 'codex' else ['auth', 'status']
             code, output, error = bounded_process(binary + command, timeout=15)
             if self.name == 'codex':
                 authenticated = code == 0 and 'logged in' in (output + error).lower() and 'api key' not in (output + error).lower()
             else:
                 status = json.loads(output)
-                authenticated = code == 0 and status.get('loggedIn') is True and status.get('authMethod') not in ('api_key', 'apiKey')
+                authenticated = code == 0 and status.get('loggedIn') is True and status.get('authMethod') == 'claude.ai'
             return {'installed': True, 'authenticated': authenticated,
                     'status': 'Subscription login detected; inference not yet verified' if authenticated else 'Subscription login required / unsupported auth', 'web': 'Not verified'}
         except (ProviderError, ValueError):
@@ -177,6 +177,8 @@ class Provider:
         binary = executable(self.name)
         if not binary:
             raise ProviderError(f'{self.name} CLI is not installed. Install and sign in separately.')
+        if not self.status().get('authenticated'):
+            raise ProviderError('A supported subscription login is required. API-key and unknown authentication are not used by this application.')
         # Never silently switch to API billing credentials inherited by this process.
         env = {k: v for k, v in os.environ.items() if k not in ('OPENAI_API_KEY', 'CODEX_API_KEY', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN')}
         env['NO_COLOR'] = '1'

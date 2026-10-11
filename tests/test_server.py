@@ -1,0 +1,87 @@
+import json
+import tempfile
+import threading
+import unittest
+import urllib.request
+import urllib.error
+from pathlib import Path
+from job_radar_ai.server import make_server
+from job_radar_ai.contracts import WEIGHTS
+
+
+class HTTPTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.server = make_server(Path.cwd(), Path(self.temp.name)/'state.sqlite3', 0)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.url = 'http://127.0.0.1:' + str(self.server.server_port)
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join()
+        self.temp.cleanup()
+
+    def request(self, path, data=None, headers=None):
+        request = urllib.request.Request(self.url+path, data=json.dumps(data).encode() if data is not None else None,
+                                         headers={'Content-Type':'application/json', **(headers or {})})
+        return urllib.request.urlopen(request)
+
+    def test_dashboard_loads_and_private_files_are_not_served(self):
+        response = self.request('/')
+        self.assertIn('JOB-RADAR', response.read().decode())
+        self.assertIn("frame-ancestors 'none'", response.headers['Content-Security-Policy'])
+        for path in ['/.private/state.sqlite3', '/AGENTS.md', '/../../LICENSE']:
+            with self.assertRaises(urllib.error.HTTPError):
+                self.request(path)
+
+    def test_cross_origin_wrong_host_and_missing_csrf_writes_are_refused(self):
+        for headers in [{}, {'Origin':'https://evil.invalid'}, {'Host':'evil.invalid'}]:
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                self.request('/api/search', {}, headers)
+            self.assertEqual(error.exception.code, 403)
+
+    def test_profile_persists_and_invalid_fields_are_refused(self):
+        token = json.load(self.request('/api/state'))['csrf']
+        headers = {'X-Radar-CSRF': token, 'Origin':self.url}
+        value = {'provider':'codex', 'objectives':'Lead a synthetic team', 'weights':{k:1 for k in WEIGHTS}, 'frequency':'manual','time':'09:00','weekday':0}
+        self.request('/api/profile', value, headers).close()
+        self.assertEqual(json.load(self.request('/api/state'))['profile']['objectives'], value['objectives'])
+        with self.assertRaises(urllib.error.HTTPError):
+            self.request('/api/profile', {**value, 'shell':'evil'}, headers)
+
+    def test_actions_update_only_intended_job_and_preserve_history(self):
+        for job_id in ['linkedin:111111','linkedin:222222']:
+            self.server.app.store.upsert_job({'id':job_id,'title':'Synthetic','url':'https://www.linkedin.com/jobs/view/'+job_id.split(':')[1]})
+        token = json.load(self.request('/api/state'))['csrf']
+        headers = {'X-Radar-CSRF':token,'Origin':self.url}
+        for status in ['saved','applied','rejected']:
+            self.request('/api/application', {'job_id':'linkedin:111111','status':status}, headers).close()
+        self.request('/api/feedback', {'job_id':'linkedin:222222','kind':'dislike','reasons':['too junior','wrong sector'],'note':'<script>alert(1)</script>'}, headers).close()
+        jobs = {j['id']:j for j in json.load(self.request('/api/state'))['jobs']}
+        self.assertEqual(jobs['linkedin:111111']['application_status'],'rejected')
+        self.assertEqual(len(jobs['linkedin:111111']['events']),3)
+        self.assertEqual(jobs['linkedin:222222']['application_status'],'none')
+
+    def test_erasure_requires_specific_confirmation(self):
+        token = json.load(self.request('/api/state'))['csrf']
+        with self.assertRaises(urllib.error.HTTPError):
+            self.request('/api/erase', {'confirm':True}, {'X-Radar-CSRF':token,'Origin':self.url})
+
+    def test_accepting_profile_preserves_user_followup_answers(self):
+        self.server.app.store.set('profile',{'objectives':'Synthetic leadership'})
+        self.server.app.store.set('proposed_profile',{'summary':'Synthetic professional summary','strengths':[],'evidence':[],'gaps':[],'questions':['Desired team scope?']})
+        token=json.load(self.request('/api/state'))['csrf']
+        self.request('/api/profile-accept',{'summary':'Reviewed summary','followup_answers':'Lead a team from day one'},
+                     {'X-Radar-CSRF':token,'Origin':self.url}).close()
+        profile=self.server.app.store.get('profile')
+        self.assertEqual(profile['followup_answers'],'Lead a team from day one')
+        self.assertEqual(profile['interpreted']['summary'],'Reviewed summary')
+
+    def test_learning_and_source_reset_are_refused_during_active_search(self):
+        self.server.app.store.start_run('codex')
+        token=json.load(self.request('/api/state'))['csrf']
+        for path,data in [('/api/learning-reset',{'confirm':'RESET LEARNING'}),('/api/learned',{'preferences':['New'],'paused':True}),('/api/source-reset',{'confirm':'REVIEWED SOURCE STOP'})]:
+            with self.assertRaises(urllib.error.HTTPError):
+                self.request(path,data,{'X-Radar-CSRF':token,'Origin':self.url})

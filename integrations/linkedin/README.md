@@ -9,6 +9,8 @@ CAPTCHA/auth walls and unrecognized HTML; no backoff/retry. Search 404 is an err
 not a valid empty result. Matching retry/404 tests describe this new safety contract.
 Description whitespace retains upstream parsing behavior. `isActive=true` is never
 exposed as verified OPEN. Upstream parsing and command interfaces remain in place.
+The subprocess test helper preloads an empty-response fetch stub: upstream's two
+valid-flag cases otherwise reach the network. All distributed tests run offline.
 
 Guest endpoints are unsupported. Automated use can conflict with LinkedIn terms.
 Personal, low-volume operation only; no coverage or availability guarantee. No login,

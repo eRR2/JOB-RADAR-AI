@@ -75,9 +75,17 @@ class Store:
             old = db.execute('SELECT payload FROM jobs WHERE id=?', (job['id'],)).fetchone()
             merged = json.loads(old[0]) if old else {}
             merged.update({k: v for k, v in job.items() if v is not None})
+            old_payload=json.loads(old[0]) if old else {}
+            # A search observation cannot erase positive evidence from a detail.
+            if old_payload.get('availability')=='closed_banner_observed' and job.get('availability')=='unknown' and not job.get('description_obtained'):
+                merged['availability']='closed_banner_observed'
+                merged['evidence']=old_payload.get('evidence','Closed banner previously observed')
+            changed=bool(old and any(merged.get(key)!=old_payload.get(key) for key in ('description','title','company','location','availability')))
             db.execute('''INSERT INTO jobs(id,payload,first_seen,last_seen) VALUES (?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,last_seen=excluded.last_seen''',
                 (job['id'], json.dumps(merged), timestamp, timestamp))
+            if changed:
+                db.execute('UPDATE jobs SET evaluation=NULL WHERE id=?',(job['id'],))
             if run_id:
                 db.execute('INSERT OR IGNORE INTO observations VALUES (?,?,?)', (run_id, job['id'], int(old is None)))
         return old is None
@@ -136,6 +144,17 @@ class Store:
                 return None
             return cursor.lastrowid
 
+    def record_skipped(self, reason):
+        with self.db() as db:
+            db.execute("INSERT INTO runs(provider,status,started,finished,stage) VALUES ('local','skipped',?,?,?)",(now(),now(),reason))
+
+    def preference_revision(self, bump=False):
+        with self.db() as db:
+            if bump:
+                db.execute("INSERT INTO settings(key,value) VALUES ('preference_revision','1') ON CONFLICT(key) DO UPDATE SET value=CAST(CAST(value AS INTEGER)+1 AS TEXT)")
+            row=db.execute("SELECT value FROM settings WHERE key='preference_revision'").fetchone()
+        return int(row[0]) if row else 0
+
     def update_run(self, run_id, stage, payload=None, status=None):
         with self.db() as db:
             row = db.execute('SELECT payload,status FROM runs WHERE id=?', (run_id,)).fetchone()
@@ -171,14 +190,18 @@ class Store:
         return {'profile': self.get('profile'), 'learned': self.get('learned', []), 'jobs': self.jobs(), 'feedback': self.feedback(), 'runs': self.runs()}
 
     def backup(self, destination):
-        with self.db() as db, sqlite3.connect(destination) as backup:
-            db.backup(backup)
+        backup=sqlite3.connect(destination)
+        try:
+            with self.db() as db:
+                db.backup(backup)
+        finally:
+            backup.close()
 
     def erase(self):
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
+            db.execute('PRAGMA secure_delete=ON')
             for table in ('observations', 'feedback', 'application_events', 'jobs', 'runs', 'cache', 'settings'):
                 db.execute('DELETE FROM ' + table)
-            db.execute('PRAGMA secure_delete=ON')
         with self.db() as db:
             db.execute('VACUUM')

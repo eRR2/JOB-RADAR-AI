@@ -1,0 +1,109 @@
+"""Launcher; separate process lock prevents overlapping servers/search tasks."""
+import argparse
+import os
+import threading
+import webbrowser
+from pathlib import Path
+from .server import make_server
+from .store import Store
+from .hunter import Hunter
+from .schedule import due_slot
+
+
+class ProcessLock:
+    def __init__(self,path):
+        path.parent.mkdir(parents=True,exist_ok=True)
+        self.file = path.open('a+b')
+        self.file.seek(0)
+        if self.file.read(1) != b'1':
+            self.file.seek(0)
+            self.file.write(b'1')
+            self.file.flush()
+        self.file.seek(0)
+        try:
+            if os.name=='nt':
+                import msvcrt
+                msvcrt.locking(self.file.fileno(),msvcrt.LK_NBLCK,1)
+            else:
+                import fcntl
+                fcntl.flock(self.file,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except OSError:
+            self.file.close()
+            raise RuntimeError('JOB-RADAR AI is already running.')
+
+    def close(self):
+        self.file.close()
+
+
+def main():
+    parser=argparse.ArgumentParser(description='Launch your local career workspace.')
+    parser.add_argument('--root',type=Path,default=Path(__file__).resolve().parent.parent)
+    parser.add_argument('--port',type=int,default=8767)
+    parser.add_argument('--no-browser',action='store_true')
+    parser.add_argument('--scheduled',action='store_true')
+    parser.add_argument('--database',default='.private/state.sqlite3',help='Private relative database path for isolated verification.')
+    args=parser.parse_args()
+    root=args.root.resolve()
+    database=(root/args.database).resolve()
+    if not database.is_relative_to(root/'.private') or database.suffix!='.sqlite3':
+        parser.error('Database must be a .sqlite3 file below this project’s .private directory.')
+    if not 1<=args.port<=65535:
+        parser.error('Invalid localhost port.')
+    try:
+        lock=ProcessLock(database.with_suffix('.lock'))
+    except RuntimeError:
+        if args.scheduled:
+            Store(database).record_skipped('Local server/search process already owns this workspace; no duplicate execution.')
+        elif not args.no_browser:
+            webbrowser.open('http://127.0.0.1:'+str(args.port))
+        print('JOB-RADAR AI is already running; overlapping execution skipped.')
+        return
+    stop=threading.Event()
+    server=None
+    hunter=None
+    scheduler=None
+    try:
+        store=Store(database)
+        store.recover_runs()
+        if args.scheduled:
+            profile=store.get('profile')
+            if not profile or not profile.get('consent') or not profile.get('linkedin_consent'):
+                store.record_skipped('Scheduled run skipped: onboarding or consent incomplete.')
+                return
+            slot=due_slot(profile,previous=store.get('schedule_slot'))
+            if not slot:
+                store.record_skipped('Scheduled run skipped: not due or already attempted today.')
+                return
+            store.set('schedule_slot',slot)
+            hunter=Hunter(root,store)
+            hunter.start()
+            hunter.thread.join()
+            return
+        server=make_server(root,database,args.port)
+        hunter=server.app.hunter
+        scheduler=threading.Thread(target=server.app.scheduler,args=(stop,),daemon=True)
+        scheduler.start()
+        print('JOB-RADAR AI: http://127.0.0.1:'+str(server.server_port),flush=True)
+        print('Local only. Close this process to stop the background server.',flush=True)
+        if not args.no_browser:
+            webbrowser.open('http://127.0.0.1:'+str(server.server_port))
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        stop.set()
+        if scheduler:
+            scheduler.join()
+        if hunter and hunter.thread and hunter.thread.is_alive():
+            hunter.cancel.set()
+            hunter.thread.join()
+        if server:
+            server.app.operation_cancel.set()
+            if server.app.operation_thread and server.app.operation_thread.is_alive():
+                server.app.operation_thread.join()
+            server.server_close()
+        lock.close()
+
+
+if __name__=='__main__':
+    main()

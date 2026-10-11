@@ -1,6 +1,7 @@
 import { join } from "path";
 
 const CLI_PATH = join(import.meta.dir, "../src/cli.ts");
+const OFFLINE_FETCH = join(import.meta.dir, "offline-fetch.ts");
 
 export interface CLIResult {
   stdout: string;
@@ -9,7 +10,7 @@ export interface CLIResult {
 }
 
 export async function runCLI(args: string[]): Promise<CLIResult> {
-  const proc = Bun.spawn(["bun", "run", CLI_PATH, ...args], {
+  const proc = Bun.spawn(["bun", "run", "--preload", OFFLINE_FETCH, CLI_PATH, ...args], {
     stdout: "pipe",
     stderr: "pipe",
   });

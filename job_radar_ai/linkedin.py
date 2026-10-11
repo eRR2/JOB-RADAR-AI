@@ -4,6 +4,7 @@ import json
 import re
 import time
 from pathlib import Path
+from datetime import datetime, timezone
 from .providers import executable, bounded_process, ProviderError
 from .store import now
 
@@ -18,10 +19,13 @@ class LinkedIn:
         self.store, self.cancel, self.budgets = store, cancel, budgets
         self.requests = self.cache_hits = 0
         self.last_request = 0
+        self.last_cached = False
 
     def invoke(self, args, key, ttl):
+        self.last_cached = False
         cached = self.store.cached(key, ttl)
         if cached is not None:
+            self.last_cached = True
             self.cache_hits += 1
             return cached
         stop = self.store.get('linkedin_stop')
@@ -32,10 +36,13 @@ class LinkedIn:
         binary = executable('bun')
         if not binary:
             raise SourceError('Bun is not installed. LinkedIn source unavailable.')
-        delay = max(0, self.budgets['spacing'] - (time.monotonic() - self.last_request))
+        previous=self.store.get('linkedin_last_attempt')
+        elapsed=(datetime.now(timezone.utc)-datetime.fromisoformat(previous)).total_seconds() if previous else float('inf')
+        delay = max(0, self.budgets['spacing']-elapsed)
         if self.cancel.wait(delay):
             raise ProviderError('Canceled by user.')
         self.store.set('linkedin_pending', True)
+        self.store.set('linkedin_last_attempt',datetime.now(timezone.utc).isoformat())
         self.requests += 1
         self.last_request = time.monotonic()
         try:
@@ -57,8 +64,6 @@ class LinkedIn:
             result = json.loads(output)
         except ValueError as exc:
             raise SourceError('Malformed LinkedIn CLI response; not treated as empty results.') from exc
-        self.store.cache(key, result)
-        self.store.set('linkedin_last_success', now())
         return result
 
     def search(self, query, page=1):
@@ -82,17 +87,24 @@ class LinkedIn:
             jobs.append({**card, 'id': 'linkedin:' + job_id, 'source_id': job_id, 'source': 'LinkedIn guest',
                          'url': f'https://www.linkedin.com/jobs/view/{job_id}', 'availability': 'unknown',
                          'evidence': 'Observed in guest search; availability unconfirmed'})
+        if not self.last_cached:
+            self.store.cache(key, result)
+            self.store.set('linkedin_last_success', now())
         return jobs
 
     def detail(self, job_id):
         if not isinstance(job_id, str) or not re.fullmatch(r'\d{6,15}', job_id):
             raise ValueError('Only verified numeric LinkedIn identities are accepted.')
-        result = self.invoke(['detail', job_id], 'linkedin:detail:' + job_id, 86400)
+        key = 'linkedin:detail:' + job_id
+        result = self.invoke(['detail', job_id], key, 86400)
         if not isinstance(result, dict) or str(result.get('id')) != job_id:
             raise SourceError('Description identity mismatch.')
         description = result.get('description')
         if not isinstance(description, str) or len(description) < 100:
             raise SourceError('Full job description unavailable; not evaluated as complete.')
+        if not self.last_cached:
+            self.store.cache(key, result)
+            self.store.set('linkedin_last_success', now())
         return {**result, 'id': 'linkedin:' + job_id, 'source_id': job_id, 'source': 'LinkedIn guest',
                 'description': description[:60000], 'description_obtained': now(),
                 'url': f'https://www.linkedin.com/jobs/view/{job_id}',
