@@ -1,0 +1,13 @@
+{
+  "uv": {
+    "url": "https://github.com/astral-sh/uv/releases/download/0.9.5/uv-x86_64-pc-windows-msvc.zip",
+    "sha256": "515dc53d7553f1357d0abc1f70acd921fbb9e30230b1d9a08737236daa6ee920",
+    "executable": "uv.exe"
+  },
+  "bun": {
+    "url": "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-windows-x64.zip",
+    "sha256": "0a0620930b6675d7ba440e81f4e0e00d3cfbe096c4b140d3fff02205e9e18922",
+    "executable": "bun-windows-x64/bun.exe"
+  },
+  "python": "3.13.7"
+}

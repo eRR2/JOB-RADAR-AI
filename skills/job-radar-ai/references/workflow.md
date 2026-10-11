@@ -2,7 +2,7 @@
 
 ## Setup
 
-Use the independent MIT repository https://github.com/eRR2/JOB-RADAR-AI. Download and extract a release/ZIP or use an existing checkout; preserve existing directories. On Windows, open `Launch JOB-RADAR.cmd` (first launch runs `setup.cmd`). Python 3.11+, Bun, and a separately installed, subscription-authenticated Codex or Claude Code CLI are prerequisites. The launcher opens the loopback dashboard at `http://127.0.0.1:8767`. Read the README for official prerequisite installation links and limitations. The application never obtains the provider's credentials itself.
+Use the independent MIT repository https://github.com/eRR2/JOB-RADAR-AI. Preserve existing directories. In V2 the skill executes `scripts/launch-skill.ps1` and opens `http://127.0.0.1:8767` automatically. Follow [the launch boundary](launch.md): missing runtimes require explicit private-bootstrap approval, and a separately installed subscription-authenticated provider CLI is still necessary. The original CMD/setup launchers remain available for V1 recovery. The application never obtains provider credentials itself.
 
 ## Career profile
 
@@ -24,7 +24,7 @@ Use explicit like/dislike/irrelevant reasons and notes. The next search derives 
 
 Save, Applied, Interview, Offer, Rejected and Dismissed update the intended identity and append dated events. Saved/Ongoing/History are independent of career feedback and vacancy availability. Rediscovery preserves history and does not present an applied/rejected identity as a new recommendation.
 
-Reports contains the latest and historical run outcomes, actual source successes/failures, requests, cache hits, new/previously seen jobs, descriptions, evaluations and AI analysis. Distinguish completed, partial, failed, canceled and skipped runs. Never claim execution while the computer is off. Daily/weekly scheduling uses local time while the runtime is active; a native task needs explicit user confirmation and runs only on a powered-on machine with the user logged in.
+Reports contains the latest and historical run outcomes, actual source successes/failures, requests, cache hits, new/previously seen jobs, descriptions, evaluations and AI analysis. Distinguish completed, partial, failed, canceled and skipped runs. In V2 skill mode daily/weekly frequency offers the latest missed slot on opening: Run now starts one bounded run, Remind later defers one hour, Skip persists a skipped outcome. No unattended search, native task or backlog replay. V1's legacy scheduling is only available through its original launcher.
 
 ## Private state
 
