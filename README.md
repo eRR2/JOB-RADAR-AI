@@ -4,7 +4,31 @@ Your own AI subscription, a local career workspace, and opportunities judged by 
 
 JOB-RADAR AI is a single-user Windows-first browser application. Codex or Claude Code interprets your CV, creates search queries and exploratory role families, selects descriptions to investigate, assesses ATS/CV readiness and hiring-manager fit, learns from explicit feedback, and writes career reports. SQLite preserves your discoveries and application history. There is no hosted AI service or additional API-key billing fallback.
 
-## Installation — Windows
+## V2 skill launch — Phase 1 feature branch
+
+In this checkout, invoke **`$job-radar-ai`** in Codex. The skill runs the fixed local
+launcher and opens your real default browser automatically. Upload your CV and
+set career priorities, location and daily/weekly/manual frequency in onboarding.
+Your profile, actual search results, AI reasoning and feedback persist under
+ignored `.private/`; future AI runs read the same SQLite records.
+
+Missing Python/Bun runtimes trigger an approval request for private automatic
+bootstrap. You do not manually install them; they remain runtime dependencies.
+An installed, subscription-authenticated **Codex CLI** is required for dashboard
+inference. Codex desktop/IDE installation alone does not prove CLI availability.
+Claude Code's `/job-radar-ai` boundary is prepared but not live-verified here.
+
+Skill mode offers **Run now / Remind later / Skip** for a missed search. It creates
+no OS scheduler and does not search automatically while closed. **Close workspace**
+stops the server; invoking the skill reopens the same private history. The calling
+chat and dashboard inference are separate supported CLI sessions.
+
+See [V2 architecture, bootstrap limits and evidence](docs/V2_PHASE1.md). V2 is an
+unreleased local feature branch: copying a standalone skill folder still requires
+the application checkout. Clean-machine universal zero-install support is not
+claimed. The original V1 entrypoints below and Git history remain recoverable.
+
+## V1 installation — Windows
 
 1. Install **Python 3.11+** from [python.org](https://www.python.org/downloads/windows/) with **Add Python to PATH**, and **Bun** following its [official Windows instructions](https://bun.sh/docs/installation).
 2. Install and sign in to **one** supported subscription environment: [Codex CLI](https://developers.openai.com/codex/cli/) with ChatGPT login, or [Claude Code](https://code.claude.com/docs/en/setup) with Claude subscription login. Provider installation/login is separate; this app does not collect credentials. CLI availability and account permissions vary.
@@ -40,7 +64,7 @@ Defaults are 3 dynamically chosen searches, one page per query, 5 selected descr
 
 Supplementary official-careers/ATS research is optional and uses the chosen provider's real web tools. **V1 currently cannot verify full fetched-page text through the adapters' available CLI output.** Codex can expose actual web actions/URLs, while Claude's JSON result lacks a full tool trace. These are insufficient to validate an entire description, so supplementary vacancies are **not imported** and a visible limitation is reported when research runs. Search/model prose never proves retrieval. LinkedIn full-description analysis works independently. No custom secondary scraper or paid search API is introduced.
 
-## Scheduling
+## V1 scheduling (legacy launcher only)
 
 Manual, daily and weekly searches are configured in Preferences using the computer's current local timezone. The local server checks due searches while running; the browser tab can be closed. Once-per-local-day attempts and process/database locks prevent overlaps. Failed, partial, canceled, completed and skipped runs persist; interrupted runs recover as failed without pretending completion.
 

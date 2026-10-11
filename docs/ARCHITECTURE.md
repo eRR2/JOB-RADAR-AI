@@ -1,5 +1,10 @@
 # Architecture and implementation decisions
 
+V2 Phase 1 adds an approval-gated private-runtime skill launcher and catch-up-only
+execution mode while reusing the V1 AI/data/source boundaries. See
+[V2 decision and acceptance evidence](V2_PHASE1.md). The sections below describe
+the preserved V1 design; its automatic/native scheduler is disabled in skill mode.
+
 ## Accepted V1 shape
 
 One Windows-first loopback process, one local SQLite database and native browser UI. A standard-library `ThreadingHTTPServer` serves a fixed asset allowlist and guarded JSON endpoints; it is deliberately unsuitable for remote hosting or multi-user production. FastAPI/React were considered, but would add a framework/build/dependency layer without a necessary V1 capability. No cloud backend, Docker, vector store, autonomous multi-agent runtime or external account pipeline.
