@@ -7,4 +7,4 @@
 - [x] Scheduling and skills — local-time due/overlap tests, separately confirmed fixed native task creation, shared canonical package; Codex actually discovered, Claude conventions/validation only.
 - [ ] Browser visual/click/accessibility QA — no browser surface available in this session; source inspection and HTTP/JavaScript checks do not satisfy this item.
 - [ ] Claude live execution and secondary full-page evidence — unavailable CLI/telemetry; safe visible boundaries implemented.
-- [ ] Privacy and publication — awaiting final staged/history scan and new-remote verification; no private payloads may be published.
+- [x] Privacy and publication — 63 indexed source files plus Git history and eight ignore probes passed; human source/prose review completed; new public MIT repository created and main pushed, remote commit verified. Older JOB-RADAR remains unchanged.
