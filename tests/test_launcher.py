@@ -1,10 +1,22 @@
 import tempfile
 import unittest
 from unittest.mock import patch,Mock
-from job_radar_ai.__main__ import main
+from pathlib import Path
+from job_radar_ai.__main__ import main,ProcessLock
 
 
 class LauncherTests(unittest.TestCase):
+    def test_real_process_lock_refuses_second_instance_and_can_be_reopened(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'state.lock'
+            first=ProcessLock(path)
+            try:
+                with self.assertRaises(RuntimeError):
+                    ProcessLock(path)
+            finally:
+                first.close()
+            resumed=ProcessLock(path)
+            resumed.close()
     def test_scheduled_interruption_cancels_and_joins_before_releasing_lock(self):
         with tempfile.TemporaryDirectory() as directory:
             hunter=Mock();hunter.thread.join.side_effect=[KeyboardInterrupt(),None]

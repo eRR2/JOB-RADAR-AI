@@ -14,13 +14,13 @@ class ProcessLock:
     def __init__(self,path):
         path.parent.mkdir(parents=True,exist_ok=True)
         self.file = path.open('a+b')
-        self.file.seek(0)
-        if self.file.read(1) != b'1':
-            self.file.seek(0)
-            self.file.write(b'1')
-            self.file.flush()
-        self.file.seek(0)
         try:
+            # Reading byte zero of another Windows owner's locked file is denied.
+            # Metadata inspection avoids that read and initializes only empty files.
+            if os.fstat(self.file.fileno()).st_size==0:
+                self.file.write(b'1')
+                self.file.flush()
+            self.file.seek(0)
             if os.name=='nt':
                 import msvcrt
                 msvcrt.locking(self.file.fileno(),msvcrt.LK_NBLCK,1)
