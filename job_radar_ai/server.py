@@ -5,6 +5,8 @@ import secrets
 import sys
 import tempfile
 import threading
+import hashlib
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -12,14 +14,16 @@ from .store import Store, now
 from .hunter import Hunter, DEFAULT_BUDGETS, profile_signature
 from .profile import validate_profile
 from .providers import Provider, bounded_process, executable
-from .schedule import install_task, due_slot
+from .schedule import install_task, due_slot, catchup_slot
 
 CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 
 
 class Application:
-    def __init__(self, root, database):
+    def __init__(self, root, database, skill_mode=False):
         self.root = Path(root).resolve()
+        self.skill_mode = skill_mode
+        self.workspace_id = hashlib.sha256((str(self.root) + '\n' + str(Path(database).resolve())).encode()).hexdigest()
         self.store = Store(database)
         self.hunter = Hunter(root, self.store)
         self.csrf = secrets.token_urlsafe(32)
@@ -48,7 +52,39 @@ class Application:
                 'learning_explanation':self.store.get('learning_explanation',''), 'learning_paused':self.store.get('learning_paused',False),
                 'budgets':self.store.get('budgets',DEFAULT_BUDGETS), 'linkedin_stop':self.store.get('linkedin_stop'),
                 'linkedin_pending':self.store.get('linkedin_pending',False), 'linkedin_last_success':self.store.get('linkedin_last_success'),
-                'operation':self.operation, 'native_task':self.store.get('native_task'), 'timezone':__import__('datetime').datetime.now().astimezone().tzname()}
+                'operation':self.operation, 'native_task':self.store.get('native_task'), 'timezone':datetime.now().astimezone().tzname(),
+                'skill_mode':self.skill_mode, 'catchup':self.catchup()}
+
+    def catchup(self):
+        profile = self.store.get('profile')
+        if not self.skill_mode or not profile:
+            return None
+        slot = catchup_slot(profile, previous=self.store.get('schedule_slot'))
+        reminder = self.store.get('catchup_reminder') or {}
+        if not slot or (reminder.get('slot') == slot and datetime.fromisoformat(reminder['until']) > datetime.now().astimezone()):
+            return None
+        return {'slot':slot}
+
+    def catchup_action(self, data):
+        with self.mutations:
+            due = self.catchup()
+            if not due or data.get('slot') != due['slot'] or data.get('action') not in ('run', 'later', 'skip'):
+                raise ValueError('This reminder changed or was already handled. Refresh the dashboard.')
+            if (self.operation and self.operation['status'] == 'running') or any(run['status'] == 'running' for run in self.store.runs()):
+                raise ValueError('Wait for the current AI operation first.')
+            if data['action'] == 'later':
+                self.store.set('catchup_reminder', {'slot':due['slot'], 'until':(datetime.now().astimezone()+timedelta(hours=1)).isoformat()})
+                return {'reminded_later':True}
+            if data['action'] == 'run':
+                run_id = self.hunter.start()
+                if run_id is None:
+                    raise ValueError('Another search is already active.')
+            else:
+                self.store.record_skipped('User skipped catch-up slot ' + due['slot'])
+                run_id = None
+            self.store.set('schedule_slot', due['slot'])
+            self.store.set('catchup_reminder', None)
+            return {'run_id':run_id, 'saved':True}
 
     def async_operation(self, kind, function):
         if self.operation and self.operation.get('status') == 'running':
@@ -69,6 +105,8 @@ class Application:
         self.operation_thread.start()
 
     def scheduler(self, stop):
+        if self.skill_mode:
+            return
         while not stop.wait(20):
             with self.mutations:
                 profile = self.store.get('profile')
@@ -83,8 +121,8 @@ class Application:
                         pass
 
 
-def make_server(root, database, port=8767):
-    app = Application(root, database)
+def make_server(root, database, port=8767, skill_mode=False):
+    app = Application(root, database, skill_mode)
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.1'
@@ -122,6 +160,8 @@ def make_server(root, database, port=8767):
             path = urlsplit(self.path).path
             if path == '/api/state':
                 return self.response(200, app.state())
+            if path == '/api/health':
+                return self.response(200, {'app':'JOB-RADAR-AI', 'workspace_id':app.workspace_id, 'skill_mode':app.skill_mode})
             if path == '/api/export':
                 return self.response(200, app.store.export(), attachment='job-radar-private-export.json')
             routes = {'/':('index.html','text/html; charset=utf-8'), '/app.js':('app.js','text/javascript; charset=utf-8'),
@@ -164,6 +204,13 @@ def make_server(root, database, port=8767):
         def mutate(self, path, data):
             search_active=any(run['status']=='running' for run in app.store.runs())
             operation_active=bool(app.operation and app.operation['status']=='running')
+            if path == '/api/catchup':
+                return app.catchup_action(data)
+            if path == '/api/close' and app.skill_mode:
+                if search_active or operation_active:
+                    raise ValueError('Cancel or finish the AI operation before closing your workspace.')
+                threading.Thread(target=server.shutdown, daemon=True).start()
+                return {'message':'Workspace closed. Your private data is saved.'}
             if path in ('/api/profile','/api/cv','/api/profile-accept','/api/learned','/api/learning-reset','/api/source-reset','/api/budgets','/api/feedback') and (search_active or operation_active):
                 raise ValueError('Wait for or cancel the active AI operation before changing its input or source policy.')
             if path == '/api/profile':
@@ -174,6 +221,7 @@ def make_server(root, database, port=8767):
                 app.store.set('profile',profile)
                 if any(prior.get(key)!=profile.get(key) for key in ('frequency','time','weekday')):
                     app.store.set('schedule_slot',None)
+                    app.store.set('catchup_reminder',None)
                 return {'saved':True}
             if path == '/api/cv':
                 suffix = Path(self.headers.get('X-Filename','')).suffix.casefold()
@@ -244,7 +292,11 @@ def make_server(root, database, port=8767):
             if path == '/api/search':
                 if app.operation and app.operation['status']=='running':
                     raise ValueError('Wait for or cancel the profile/provider operation first.')
-                return {'run_id':app.hunter.start()}
+                run_id = app.hunter.start()
+                if app.skill_mode and run_id is not None:
+                    slot = catchup_slot(app.store.get('profile'))
+                    app.store.set('schedule_slot', slot)
+                return {'run_id':run_id}
             if path == '/api/cancel':
                 app.hunter.cancel.set()
                 app.operation_cancel.set()
@@ -289,6 +341,8 @@ def make_server(root, database, port=8767):
                 app.store.set('linkedin_pending',False)
                 return {'saved':True}
             if path == '/api/native-task':
+                if app.skill_mode:
+                    raise ValueError('Skill mode uses catch-up reminders only; OS scheduling is disabled.')
                 if data.get('confirm')!='CREATE WINDOWS TASK':
                     raise ValueError('Explicit confirmation required to create an operating-system task.')
                 profile = app.store.get('profile')

@@ -36,6 +36,23 @@ class HTTPTests(unittest.TestCase):
             with self.assertRaises(urllib.error.HTTPError):
                 self.request(path)
 
+    def test_skill_health_and_catchup_use_guarded_persistent_bridge(self):
+        self.server.app.skill_mode = True
+        self.server.app.store.set('profile', {'frequency':'daily', 'time':'00:00'})
+        state = json.load(self.request('/api/state'))
+        health = json.load(self.request('/api/health'))
+        self.assertTrue(health['skill_mode'])
+        self.assertNotIn('profile', health)
+        headers = {'X-Radar-CSRF':state['csrf'], 'Origin':self.url}
+        with self.assertRaises(urllib.error.HTTPError) as error:
+            self.request('/api/catchup', {'slot':state['catchup']['slot'], 'action':'skip'})
+        self.assertEqual(error.exception.code, 403)
+        self.request('/api/catchup', {'slot':state['catchup']['slot'], 'action':'skip'}, headers).close()
+        self.assertIsNone(json.load(self.request('/api/state'))['catchup'])
+        self.assertEqual(self.server.app.store.runs()[0]['status'], 'skipped')
+        with self.assertRaises(urllib.error.HTTPError):
+            self.request('/api/native-task', {'confirm':'CREATE WINDOWS TASK'}, headers)
+
     def test_cross_origin_wrong_host_and_missing_csrf_writes_are_refused(self):
         for headers in [{}, {'Origin':'https://evil.invalid'}, {'Host':'evil.invalid'}]:
             with self.assertRaises(urllib.error.HTTPError) as error:

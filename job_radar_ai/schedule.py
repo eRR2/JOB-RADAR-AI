@@ -1,5 +1,5 @@
 """Local wall-clock scheduling; never claims execution while computer is off."""
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import subprocess
 
@@ -12,6 +12,21 @@ def due_slot(profile, moment=None, previous=None):
     if frequency == 'weekly' and moment.weekday() != profile.get('weekday', 0):
         return None
     slot = moment.strftime('%Y-%m-%d') + ':' + frequency + ':' + profile.get('time', '09:00')
+    return slot if slot != previous else None
+
+
+def catchup_slot(profile, moment=None, previous=None):
+    """Offer only the latest missed local slot, never a backlog of searches."""
+    moment = moment or datetime.now().astimezone()
+    frequency = profile.get('frequency', 'manual')
+    if frequency == 'manual':
+        return None
+    day = moment.date()
+    if moment.strftime('%H:%M') < profile.get('time', '09:00'):
+        day -= timedelta(days=1)
+    if frequency == 'weekly':
+        day -= timedelta(days=(day.weekday() - profile.get('weekday', 0)) % 7)
+    slot = day.isoformat() + ':' + frequency + ':' + profile.get('time', '09:00')
     return slot if slot != previous else None
 
 

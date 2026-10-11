@@ -41,8 +41,11 @@ def main():
     parser.add_argument('--port',type=int,default=8767)
     parser.add_argument('--no-browser',action='store_true')
     parser.add_argument('--scheduled',action='store_true')
+    parser.add_argument('--skill-mode',action='store_true',help='Catch-up reminders only; no automatic or OS scheduling.')
     parser.add_argument('--database',default='.private/state.sqlite3',help='Private relative database path for isolated verification.')
     args=parser.parse_args()
+    if args.skill_mode and args.scheduled:
+        parser.error('Skill mode cannot run OS scheduled searches.')
     root=args.root.resolve()
     database=(root/args.database).resolve()
     if not database.is_relative_to(root/'.private') or database.suffix!='.sqlite3':
@@ -52,6 +55,8 @@ def main():
     try:
         lock=ProcessLock(database.with_suffix('.lock'))
     except RuntimeError:
+        if args.skill_mode:
+            parser.error('Workspace already running. Reuse the verified URL through the skill launcher.')
         if args.scheduled:
             Store(database).record_skipped('Local server/search process already owns this workspace; no duplicate execution.')
         elif not args.no_browser:
@@ -79,10 +84,11 @@ def main():
             hunter.start()
             hunter.thread.join()
             return
-        server=make_server(root,database,args.port)
+        server=make_server(root,database,args.port,skill_mode=args.skill_mode)
         hunter=server.app.hunter
-        scheduler=threading.Thread(target=server.app.scheduler,args=(stop,),daemon=True)
-        scheduler.start()
+        if not args.skill_mode:
+            scheduler=threading.Thread(target=server.app.scheduler,args=(stop,),daemon=True)
+            scheduler.start()
         print('JOB-RADAR AI: http://127.0.0.1:'+str(server.server_port),flush=True)
         print('Local only. Close this process to stop the background server.',flush=True)
         if not args.no_browser:
