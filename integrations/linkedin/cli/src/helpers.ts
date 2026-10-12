@@ -8,8 +8,9 @@ export const SEARCH_URL =
 export const DETAIL_URL =
   "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting"
 
-export function writeError(error: string, code: string): void {
-  process.stderr.write(JSON.stringify({ error, code }) + "\n")
+export function writeError(error: string, code: string, cause?: unknown): void {
+  const source = cause as { http_status?: number; retry_after?: string } | undefined
+  process.stderr.write(JSON.stringify({ error, code, http_status: source?.http_status, retry_after: source?.retry_after }) + "\n")
 }
 
 const UA = "Mozilla/5.0 (compatible; linkedin-search-cli/1.0)"
@@ -22,7 +23,7 @@ export async function htmlFetch(url: string): Promise<string> {
     signal: AbortSignal.timeout(15000),
   })
   if ([401, 403, 429, 999].includes(response.status) || (response.status >= 300 && response.status < 400)) {
-    throw new Error(`ACCESS_RESTRICTED HTTP ${response.status}; no retry`)
+    throw Object.assign(new Error(`ACCESS_RESTRICTED HTTP ${response.status}; no retry`), { http_status: response.status, retry_after: response.headers.get('Retry-After') || undefined })
   }
   if (!response.ok) throw new Error(`Request failed: ${response.status} ${response.statusText}`)
   const html = await response.text()
@@ -56,30 +57,19 @@ export interface JobDetail extends JobCard {
  * handling nested <div> elements by tracking tag depth.
  */
 export function extractDivContent(html: string, className: string): string | null {
-  const escaped = className.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const openRe = new RegExp(`<div[^>]*class="[^"]*${escaped}[^"]*"[^>]*>`, 'i')
-  const open = openRe.exec(html)
-  if (!open) return null
-
-  let i = open.index + open[0].length
-  let depth = 1
-
-  while (depth > 0 && i < html.length) {
-    const nextOpen = html.indexOf('<div', i)
-    const nextClose = html.indexOf('</div>', i)
-
-    if (nextClose === -1) return null
-
-    if (nextOpen !== -1 && nextOpen < nextClose) {
-      depth++
-      i = nextOpen + 4
-    } else {
-      depth--
-      i = nextClose + 6
-    }
+  const tags = /<\/?div\b[^>]*>/gi
+  let open: RegExpExecArray | null = null
+  for (let tag = tags.exec(html); tag; tag = tags.exec(html)) {
+    const classes = /\bclass\s*=\s*(["'])(.*?)\1/i.exec(tag[0])
+    if (!tag[0].startsWith('</') && classes?.[2].split(/\s+/).includes(className)) { open = tag; break }
   }
-
-  return html.slice(open.index + open[0].length, i - 6)
+  if (!open) return null
+  let depth = 1
+  for (let tag = tags.exec(html); tag; tag = tags.exec(html)) {
+    depth += /^<\//.test(tag[0]) ? -1 : 1
+    if (depth === 0) return html.slice(open.index + open[0].length, tag.index)
+  }
+  return null
 }
 
 /**

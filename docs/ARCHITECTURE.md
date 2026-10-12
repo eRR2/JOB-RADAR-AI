@@ -1,3 +1,13 @@
+# V5 architecture
+
+Current design and evidence: [V5 AI research](V5.md). `ResearchHunter` replaces the
+legacy ATS-first coordinator for generation-5 workspaces. Native web observations
+provide discovery evidence; a private anonymous-brief step excludes raw CV from web
+context. Full descriptions/evaluations reuse strict controlled retrieval contracts.
+Storage generation 5 refuses historical data; feedback is country-specific.
+
+The following sections are retained as historical V1–V4.1 decisions.
+
 # Architecture and implementation decisions
 
 V2 Phase 1 adds an approval-gated private-runtime skill launcher and catch-up-only

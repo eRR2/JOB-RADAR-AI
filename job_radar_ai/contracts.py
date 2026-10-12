@@ -32,6 +32,9 @@ EVALUATION = obj({
     'hr': obj({'assessment': string(), 'strengths': array(string(1000)), 'gaps': array(string(1000)), 'interview_risks': array(string(1000))}),
 })
 SCHEMAS = {
+    'brief_v5': obj({'professional_background':array(string(1000)), 'career_direction':string(4000)}),
+    'research_v5': obj({'jobs': array(obj({'url':string(2000),'title':string(500),'company':string(500),'location':string(500), 'country':string(100),'country_quote':string(2000),'description_sources':array(obj({'url':string(2000),'employer_url':string(2000)}),5)}),20), 'summary':string(6000),'limitations':array(string(1000)), 'continue_research':{'type':'boolean'},'next_avenues':array(string(1000))}),
+    'preliminary_v5': obj({'assessments':array(obj({'job_id':string(250),'category':enum('direct','transferable','stretch','unrelated','needs_verification'),'explanation':string(4000),'promising':{'type':'boolean'},'gaps':array(string(1000))}),20)}),
     'boards':obj({'boards':array(obj({'provider':enum('greenhouse','lever','ashby','smartrecruiters','workable'),'url':string(2000),'employer_url':string(2000),'query':string(160)}),2),'limitations':array(string(1000))}),
     'intent': obj({'summary': string(), 'experience': array(obj({'text':string(1000),'quote':string(1500)})),
         'preferences':array(obj({'topic':string(100),'value':string(1000),'scope':string(2),'origin':enum('explicit','cv_evidenced','inferred','unknown'),'quote':string(1500),'hard':{'type':'boolean'}}),30),

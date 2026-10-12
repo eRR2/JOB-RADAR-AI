@@ -1,6 +1,13 @@
+# V5 preview note
+
+For the current copy-paste installation instruction and actual limitations, see [V5](V5.md).
+Create a new generation-5 workspace; never import V1–V4.1 user data or automatically
+replace another installation. The supported installer/runtime/skill steps below remain
+applicable. Desktop sign-in alone does not prove CLI web capability.
+
 # Windows: second-user setup with Codex Desktop
 
-V2 Phase 4.1 preview is on `feat/v2-phase4-1-search-and-ux`, **not GitHub main**.
+V2 Phase 4.1 preview is on `feat/v5-ai-career-research`, **not GitHub main**.
 Use a separate Windows account/PC and that user's own ChatGPT subscription.
 VS Code, Git, manual Python/Bun installation and a Windows installer are not required.
 PowerShell and permission for local files, processes, downloads and browser launch are required.
@@ -15,7 +22,7 @@ The bootstrap currently supports Windows x64; ARM64 and organizational restricti
 
 ```text
 JOB-RADAR AI'yi bu Windows bilgisayarda benim için kur ve tarayıcıda aç:
-https://github.com/eRR2/JOB-RADAR-AI/tree/feat/v2-phase4-1-search-and-ux
+https://github.com/eRR2/JOB-RADAR-AI/tree/feat/v5-ai-career-research
 Bu dalın docs/INSTALL_CODEX_DESKTOP.md yönergesini oku. Yeni uygulama klasörünü
 %LOCALAPPDATA%\JOB-RADAR-AI\app altında hazırla ve belgelenmiş kullanıcı
 skill klasörüne job-radar-ai kaydı ekle. Mevcut kurulum/veri/skill varsa koru.

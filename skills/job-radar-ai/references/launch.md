@@ -1,4 +1,4 @@
-# V2 launch and second-user setup
+# V5 launch and second-user setup
 
 For first-time Windows Codex Desktop setup and safe upgrades, follow
 `docs/INSTALL_CODEX_DESKTOP.md` in the checkout. Codex downloads/reviews a public
@@ -18,8 +18,8 @@ script, rather than asking the user to use the old CMD/Python launcher.
 The normal launcher reuses healthy `.venv` / private runtime Python and Bun on
 PATH or `~/.bun/bin`. It starts the loopback server with `--skill-mode`, verifies
 the checkout/database identity, and requests the default browser to open.
-Already-running V2 in that same workspace is reused. An unrelated service or
-V1 server is never stopped or mistaken for successful V2 startup.
+Already-running V5 in that same workspace is reused. An unrelated service or
+V1 server is never stopped or mistaken for successful V5 startup.
 
 If missing, ask for approval to download pinned uv 0.9.5, managed Python 3.13.7,
 locked Python wheels and Bun 1.3.14 into `.private/runtime`. Then pass
@@ -39,14 +39,17 @@ used. The calling agent and dashboard AI subprocess are separate sessions; there
 is no undocumented injection into the current chat.
 
 For verification only, `-ManagedOnly` ignores existing `.venv` and user Bun,
-`-Database .private/v2-verification.sqlite3 -Port 8768` isolates synthetic data,
+`-Database .private/v5-verification.sqlite3 -Port 8768` isolates synthetic data,
 and `-NoBrowser` skips the browser-open request. These are developer options.
 Do not silently choose a fresh database to evade a source stop. Once LinkedIn
 denies access, no retries, resets or substitute routes for that verification.
 
 Copying only this skill package elsewhere does not ship the app. A full repository
-checkout or reviewed public source archive remains necessary. V2 is on
-`feat/v2-phase4-1-search-and-ux`: GitHub main does not contain these changes.
+checkout or reviewed public source archive remains necessary. V5 is on
+`feat/v5-ai-career-research`: GitHub main does not contain these changes.
 Claude invocation conventions are documented, but live
-execution needs Claude installed. See `docs/V2_PHASE1.md` in the checkout for
+execution needs Claude installed. See `docs/V5.md` in the checkout for
 runtime decisions, clean-machine limits and current evidence.
+
+V5 fresh storage is generation 5: do not import old CV/history/stops. Existing V5 data
+is preserved. See docs/V5.md for developer reset evidence and preview limitations.

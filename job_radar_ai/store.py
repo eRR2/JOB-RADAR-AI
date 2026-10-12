@@ -23,15 +23,18 @@ def normalize_weights(weights):
 
 
 class Store:
-    def __init__(self, path):
+    def __init__(self, path, v5=False):
         self.path = Path(path)
+        self.v5 = v5
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.db() as db:
             if db.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
                 raise RuntimeError('Established database failed integrity check. Restore a backup explicitly.')
             version = db.execute('PRAGMA user_version').fetchone()[0]
-            if version not in (0, 1, 2):
+            if version not in ((0, 5) if v5 else (0, 1, 2)):
                 raise RuntimeError('Unsupported database version; do not replace it.')
+            if v5 and version==0 and db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchone():
+                raise RuntimeError('V5 requires empty new storage; historical unversioned tables are not imported.')
             if version == 1:
                 # SQLite backup is consistent even in WAL mode. Fail closed before DDL.
                 folder = self.path.parent/'backups'
@@ -79,7 +82,7 @@ class Store:
                     if job['evaluation']:
                         db.execute('INSERT OR IGNORE INTO market_evaluations VALUES (?,?,?,1)', (job['id'],country or 'unclassified',job['evaluation']))
                     db.execute('INSERT OR IGNORE INTO feedback_scopes SELECT id,? FROM feedback WHERE job_id=?', (country or 'unclassified',job['id']))
-            db.execute('PRAGMA user_version=2')
+            db.execute('PRAGMA user_version='+('5' if v5 else '2'))
 
     @contextmanager
     def db(self):
@@ -100,6 +103,12 @@ class Store:
     def stop_keys(self):
         with self.db() as db:
             return [row[0] for row in db.execute("SELECT key FROM settings WHERE key LIKE 'public:stop:%'")]
+
+    def access_restrictions(self):
+        from .access import active
+        with self.db() as db:
+            rows=db.execute("SELECT key,value FROM settings WHERE key LIKE 'public:access:%'").fetchall()
+        return [r['key'].removeprefix('public:access:') for r in rows if active(json.loads(r['value']))]
 
     def set(self, key, value):
         with self.db() as db:
@@ -180,6 +189,8 @@ class Store:
             markets=(json.loads(profile_row[0]) if profile_row else {}).get('markets',defaults())
             country=country_of(json.loads(row[0]),markets)
             scope = scope or country or 'unclassified'
+            if self.v5 and scope != (country or 'unclassified'):
+                raise ValueError('Feedback belongs to the verified vacancy country; express broader preferences in your next-move text.')
             if scope not in ('global','unclassified') and scope != country:
                 raise ValueError('Regional feedback must match the verified listing country. Use global explicitly for all markets.')
             cursor=db.execute('INSERT INTO feedback(job_id,kind,reasons,note,at) VALUES (?,?,?,?,?)', (job_id, kind, json.dumps(reasons), note, now()))
@@ -230,6 +241,10 @@ class Store:
 
     def recover_runs(self):
         # Called only after taking the single application process lock.
+        if self.v5 and self.get('linkedin_pending'):
+            from .access import restriction
+            if not self.get('linkedin_access'):
+                self.set('linkedin_access',restriction(None,interrupted=True))
         with self.db() as db:
             db.execute("UPDATE runs SET status='failed',finished=?,stage='Interrupted process; request extent may be unknown' WHERE status='running'", (now(),))
 

@@ -94,7 +94,10 @@ class HTTPTests(unittest.TestCase):
             self.assertEqual(error.exception.code,403)
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.server = make_server(Path.cwd(), Path(self.temp.name)/'state.sqlite3', 0)
+        # Historical API regressions target V2 explicitly; V5 has its own
+        # onboarding/storage/connection endpoint tests using this HTTP harness.
+        with patch('job_radar_ai.server.version',return_value={'version':getattr(self,'generation','2.4.1-phase4-1'),'channel':'preview'}):
+            self.server = make_server(Path.cwd(), Path(self.temp.name)/'state.sqlite3', 0)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.url = 'http://127.0.0.1:' + str(self.server.server_port)

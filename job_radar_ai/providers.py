@@ -173,7 +173,7 @@ class Provider:
         except (ValueError, AttributeError) as exc:
             raise ProviderError('Claude output is not valid structured JSON.') from exc
 
-    def run(self, kind, task, context, cancel=None, research=False):
+    def run(self, kind, task, context, cancel=None, research=False, timeout=240):
         binary = executable(self.name)
         if not binary:
             raise ProviderError(f'{self.name} CLI is not installed. Install and sign in separately.')
@@ -189,9 +189,9 @@ class Provider:
                   'Interpret natural-language preferences without user weights or a composite score. Separate hard requirements from preferences. Unknown facts need verification, not rejection. '
                   'Employer rejection is never preference feedback. One dislike is tentative, not a field-wide exclusion. '
                   'Use actual job responsibilities, domain and evidence, not title similarity. '
-                  + ('Use available web search/fetch only for public official vacancy research; do not send CV text or personal details to search. Respect access restrictions; never retry denied sources. ' if research else 'Do not use any tools. ')
+                  + ('Use permitted public web search for vacancies, indexed LinkedIn URLs, employer careers and supporting role research. Do not send CV text, names, contact details or identifying career history to search. Direct LinkedIn fetches are NOT authorized by web discovery; use indexed search evidence and independent permitted employer pages. Respect supplied restrictions; never retry denied publishers or use alternate denied endpoints. ' if research else 'Do not use any tools. ')
                   + '\nTASK: ' + task + '\nCONTEXT (DATA):\n' + json.dumps(context, ensure_ascii=False))
-        telemetry = {'web_calls': 0, 'observed_urls': [], 'event_count': 0}
+        telemetry = {'web_calls': 0, 'observed_urls': [], 'observations': [], 'actions': [], 'event_count': 0}
         forbidden = threading.Event()
 
         def event_line(line):
@@ -204,6 +204,11 @@ class Provider:
             tool = item.get('type', '')
             if tool == 'web_search':
                 telemetry['web_calls'] += int(event.get('type') == 'item.completed')
+                if event.get('type') == 'item.completed':
+                    telemetry['actions'].append(item.get('action', {}))
+                    for result in item.get('results', []):
+                        if isinstance(result, dict) and isinstance(result.get('url'), str):
+                            telemetry['observations'].append({k: result[k] for k in ('url', 'title', 'snippet', 'text', 'content', 'type') if isinstance(result.get(k), str)})
                 def find_urls(data):
                     if isinstance(data, dict):
                         for key, value in data.items():
@@ -223,7 +228,7 @@ class Provider:
             schema_path = directory / 'schema.json'
             schema_path.write_text(json.dumps(SCHEMAS[kind]), encoding='utf-8')
             code, output, error = bounded_process(self.command(binary, schema_path, research, SCHEMAS[kind]),
-                prompt, cwd=directory, timeout=240, cancel=cancel, env=env, on_line=event_line if self.name == 'codex' else None)
+                prompt, cwd=directory, timeout=timeout, cancel=cancel, env=env, on_line=event_line if self.name == 'codex' else None)
             self.telemetry = telemetry
             if forbidden.is_set():
                 raise ProviderError('Provider attempted a tool outside the permitted research contract; result refused.')

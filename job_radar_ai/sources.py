@@ -8,6 +8,7 @@ import socket
 import ssl
 import sys
 import time
+from datetime import datetime, timezone
 from html import unescape
 from html.parser import HTMLParser
 from urllib.parse import urlsplit, urljoin, parse_qs
@@ -16,6 +17,7 @@ from .linkedin import SourceError
 from .providers import bounded_process, ProviderError
 from .store import now
 from .markets import country_of, defaults
+from .access import active, restriction
 
 MAX_BYTES = 1_000_000
 AGENT = 'JOB-RADAR-AI/2.4 (+https://github.com/eRR2/JOB-RADAR-AI)'
@@ -30,10 +32,11 @@ def publisher_group(host):
 
 
 class RetrievalError(SourceError):
-    def __init__(self, status, message, http_status=None):
+    def __init__(self, status, message, http_status=None, retry_after=None):
         super().__init__(message)
         self.status = status
         self.http_status=http_status
+        self.retry_after=retry_after
 
 
 def public_url(url):
@@ -86,7 +89,7 @@ def request_public(url, max_bytes=MAX_BYTES):
         response = conn.getresponse()
         status = response.status
         if status in DENIED:
-            raise RetrievalError('blocked', 'Publisher access restriction; no automatic retry.',status)
+            raise RetrievalError('blocked', 'Publisher access restriction; no automatic retry.',status,response.getheader('Retry-After'))
         if status in (301, 302, 303, 307, 308):
             return {'redirect': response.getheader('Location', ''), 'status': status}
         if status == 404 or status == 410:
@@ -127,14 +130,14 @@ def worker_request(url, cancel=None):
                                          timeout=25, cancel=cancel, max_output=1_500_000)
         result = json.loads(output)
         if code:
-            raise RetrievalError(result.get('status', 'failed'), result['error'],result.get('http_status'))
+            raise RetrievalError(result.get('status', 'failed'), result['error'],result.get('http_status'),result.get('retry_after'))
         return result
     except (ProviderError, ValueError) as exc:
         raise RetrievalError('failed', 'Source worker stopped or timed out; no retry.') from exc
 
 
 class PublicFetcher:
-    def __init__(self, store, cancel=None, budget=12, request=None, publisher_budget=None):
+    def __init__(self, store, cancel=None, budget=12, request=None, publisher_budget=None, deadline=None):
         self.store, self.cancel, self.budget = store, cancel, budget
         self.request = request or (lambda url: worker_request(url, cancel))
         self.requests = self.cache_hits = 0
@@ -142,6 +145,8 @@ class PublicFetcher:
         self.publisher_budget=publisher_budget
         self.publisher_requests={}
         self.diagnostics=[]
+        self.denied_in_run=set()
+        self.deadline=deadline
 
     def get(self, url, api=False):
         origin = public_url(url).hostname
@@ -152,6 +157,8 @@ class PublicFetcher:
             return cached
         # Same publisher stop survives restarts and cannot be reset by this module.
         group=publisher_group(origin)
+        if self.store.v5 and (group in self.denied_in_run or active(self.store.get('public:access:'+group))):
+            raise RetrievalError('blocked_shared_stop', 'Publisher restricted or cooling down; no request.')
         if self.store.get('public:stop:' + origin) or self.store.get('public:stop:'+group):
             raise RetrievalError('blocked_shared_stop', 'Publisher access is stopped; no new request.')
         if not api:
@@ -164,10 +171,27 @@ class PublicFetcher:
                     raise RetrievalError('blocked', 'Cross-host redirect refused; no substitute route.')
                 if self.cancel and self.cancel.is_set():
                     raise RetrievalError('failed', 'Canceled; no new source request.')
+                if self.deadline is not None and time.monotonic()>=self.deadline:
+                    raise RetrievalError('budget_deferred','Research time window reached; no new request.')
                 if self.requests >= self.budget:
                     raise RetrievalError('budget_deferred', 'Public source request budget reached.')
                 if self.publisher_budget is not None and self.publisher_requests.get(group,0)>=self.publisher_budget:
                     raise RetrievalError('budget_deferred','Publisher request budget reached; cached evidence remains available.')
+                if self.store.v5:
+                    spacing=5
+                    rules=self.robots.get(origin)
+                    if rules:
+                        spacing=max(spacing,rules.crawl_delay(AGENT) or 0)
+                        rate=rules.request_rate(AGENT)
+                        if rate and rate.requests:spacing=max(spacing,rate.seconds/rate.requests)
+                    previous=self.store.get('public:last_attempt:'+group)
+                    elapsed=(datetime.now(timezone.utc)-datetime.fromisoformat(previous)).total_seconds() if previous else float('inf')
+                    delay=max(0,spacing-elapsed)
+                    if self.deadline is not None and time.monotonic()+delay>=self.deadline:
+                        raise RetrievalError('budget_deferred','Publisher spacing exceeds remaining time window; no request.')
+                    if delay and (self.cancel.wait(delay) if self.cancel else time.sleep(delay)):
+                        raise RetrievalError('failed','Canceled before source request.')
+                    self.store.set('public:last_attempt:'+group,datetime.now(timezone.utc).isoformat())
                 self.requests += 1
                 self.publisher_requests[group]=self.publisher_requests.get(group,0)+1
                 diagnostic={'endpoint':p.scheme+'://'+p.netloc+p.path,'parameters':{k:[v[:200] for v in values] for k,values in parse_qs(p.query).items() if k in ('q','country','city','limit','offset','skip','mode','details')},'at':now()}
@@ -192,8 +216,12 @@ class PublicFetcher:
             raise RetrievalError('blocked', 'Redirect limit reached; no retry.')
         except RetrievalError as exc:
             if exc.status == 'blocked':
-                self.store.set('public:stop:' + origin, str(exc))
-                self.store.set('public:stop:' + group, str(exc))
+                if self.store.v5:
+                    self.denied_in_run.add(group)
+                    self.store.set('public:access:'+group, restriction(exc.http_status,exc.retry_after,self.store.get('public:access:'+group)))
+                else:
+                    self.store.set('public:stop:' + origin, str(exc))
+                    self.store.set('public:stop:' + group, str(exc))
             raise
 
     def check_robots(self, url):

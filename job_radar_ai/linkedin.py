@@ -7,6 +7,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from .providers import executable, bounded_process, ProviderError
 from .store import now
+from .access import active, restriction, linkedin_state
 
 
 class SourceError(RuntimeError):
@@ -20,6 +21,7 @@ class LinkedIn:
         self.requests = self.cache_hits = 0
         self.last_request = 0
         self.last_cached = False
+        self.denied_in_run = False
 
     def invoke(self, args, key, ttl):
         self.last_cached = False
@@ -28,8 +30,14 @@ class LinkedIn:
             self.last_cached = True
             self.cache_hits += 1
             return cached
-        stop = self.store.get('linkedin_stop')
-        if stop or self.store.get('linkedin_pending'):
+        if self.store.v5:
+            if self.store.get('linkedin_pending') and not self.store.get('linkedin_access'):
+                self.store.set('linkedin_access',restriction(None,interrupted=True))
+            state = linkedin_state(self.store)
+            if active(state) or self.denied_in_run:
+                raise SourceError('LinkedIn direct access '+state['state']+'; independent indexed web research remains available.')
+        stop = None if self.store.v5 else self.store.get('linkedin_stop')
+        if stop or (self.store.get('linkedin_pending') and not self.store.v5):
             raise SourceError(stop or 'A previous request was interrupted; request extent is unknown. Review the source stop before continuing.')
         if self.requests >= self.budgets['requests']:
             raise SourceError('LinkedIn request budget reached.')
@@ -49,21 +57,35 @@ class LinkedIn:
             code, output, error = bounded_process(binary + ['run', str(self.cli)] + args + ['--format', 'json'],
                 timeout=30, cancel=self.cancel)
         except ProviderError:
-            self.store.set('linkedin_stop', 'Interrupted/timed-out LinkedIn request; request extent is unknown. No automatic retry.')
+            if self.store.v5:
+                self.store.set('linkedin_access', restriction(None, previous=self.store.get('linkedin_access'), interrupted=True))
+            else:
+                self.store.set('linkedin_stop', 'Interrupted/timed-out LinkedIn request; request extent is unknown. No automatic retry.')
             raise
         self.store.set('linkedin_pending', False)
         if code:
             try:
-                message = json.loads(error.strip().splitlines()[-1]).get('error', 'LinkedIn CLI failed')
+                failure = json.loads(error.strip().splitlines()[-1])
+                message = failure.get('error', 'LinkedIn CLI failed')
             except (ValueError, IndexError):
                 message = 'LinkedIn CLI failed'
+                failure = {}
             if any(flag in message.lower() for flag in ('access_restricted', '429', '403', '401', '999', 'captcha', 'authwall', 'redirect', 'checkpoint')):
-                self.store.set('linkedin_stop', message[:500])
+                if self.store.v5:
+                    self.denied_in_run = True
+                    status = failure.get('http_status')
+                    if status is None:
+                        match = re.search(r'HTTP (\d{3})', message)
+                        status = int(match[1]) if match else None
+                    self.store.set('linkedin_access', restriction(status, failure.get('retry_after'), self.store.get('linkedin_access')))
+                else:
+                    self.store.set('linkedin_stop', message[:500])
             raise SourceError(message[:500])
         try:
             result = json.loads(output)
         except ValueError as exc:
             raise SourceError('Malformed LinkedIn CLI response; not treated as empty results.') from exc
+        if self.store.v5: self.store.set('linkedin_access', None)
         return result
 
     def search(self, query, page=1):

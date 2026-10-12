@@ -97,7 +97,8 @@ test('onboarding and Preferences contain no sliders or hidden draft weights',()=
   assert.equal(run("'weights' in defaultDraft()"),false);
   const preferences=run('draft=structuredClone(state.profile);preferences()');
   assert.equal(nodes(preferences).filter(n=>n.attributes?.type==='range').length,0);
-  assert.match(preferences.text,/Germany market/);assert.match(preferences.text,/Netherlands market/);
+  assert.doesNotMatch(preferences.text,/Country code|Global preferences|Required by me|Advanced Preferences/);
+  assert.match(preferences.text,/Search routine/);
 });
 test('reopened detail exposes persisted Like independently of Save',()=>{
   const {run,surfaces}=fixture();
@@ -171,15 +172,15 @@ test('onboarding distinguishes Desktop sign-in from a missing or unauthenticated
   assert.doesNotMatch(ready.text,/Codex CLI setup needed|Complete your Codex CLI sign-in/);
 });
 
-test('fresh one-text onboarding has generic geography and advanced controls remain optional',()=>{
+test('V5 fresh onboarding has one career text box and no technical preference controls',()=>{
   const {run}=fixture();
   const page=run('state.profile=null;draft=null;onboarding()');
   assert.equal(run('defaultDraft().markets.length'),0);
   assert.equal(visibleNodes(page).filter(n=>n.tag==='textarea').length,1);
-  assert.match(page.text,/What are you looking for in your next move/);
+  assert.match(page.text,/What are you looking for in your next career move/);
   assert.doesNotMatch(page.text,/Germany market|Netherlands market|Salary expectations/);
   const advanced=run('preferences()');
-  assert.ok(nodes(advanced).find(n=>n.tag==='details'&&n.text.includes('Advanced Preferences')));
+  assert.doesNotMatch(advanced.text,/Advanced Preferences|Country code|Required by me|Geographic scope|Apply to all markets/);
 });
 
 test('clear regional conflict is retained in All jobs but excluded from Recommended',()=>{
@@ -189,12 +190,12 @@ test('clear regional conflict is retained in All jobs but excluded from Recommen
   assert.equal(run('visibleJobs().filter(recommended).length'),0);
 });
 
-test('review focuses on summary; technical controls are collapsed and summary edits require reinterpretation',()=>{
+test('V5 review has no technical controls and summary edits require reinterpretation',()=>{
   const {run}=fixture();
   run(`draft=defaultDraft();state.proposed_intent={input:{looking_for:'Explore'},intent:{summary:'Explore opportunities',preferences:[{topic:'direction',value:'Explore',scope:'',origin:'explicit',hard:false}],markets:[{id:'CA',country:'Canada',scope_type:'city',preferred:['Toronto'],secondary:[],remote:'none',relocation:false,origin:'explicit'}],questions:[]}};`);
   const page=run('intentPanel()');
   const advanced=nodes(page).find(n=>n.tag==='details'&&n.text.includes('Advanced Preferences'));
-  assert.ok(advanced);assert.equal(advanced.open,false);assert.match(advanced.text,/Required by me/);
+  assert.equal(advanced,undefined);
   assert.doesNotMatch(visibleNodes(page).map(n=>n.textContent||'').join(' '),/Required by me|Country code|Geographic scope|Global/);
   const summary=nodes(page).find(n=>n.tag==='textarea'&&n.attributes['aria-label']==='Edit understood summary');
   const confirm=nodes(page).find(n=>n.tag==='button'&&n.text==='Looks right — continue');

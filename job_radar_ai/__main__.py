@@ -8,6 +8,8 @@ from .server import make_server
 from .store import Store
 from .hunter import Hunter
 from .schedule import due_slot
+from .updates import version
+from .research import ResearchHunter
 
 
 class ProcessLock:
@@ -75,11 +77,12 @@ def main():
     hunter=None
     scheduler=None
     try:
-        store=Store(database)
+        v5=(root/'version.json').is_file() and version(root).get('version','').startswith('5.')
+        store=Store(database,v5=v5)
         store.recover_runs()
         if args.scheduled:
             profile=store.get('profile')
-            if not profile or not profile.get('consent') or not profile.get('linkedin_consent'):
+            if not profile or not profile.get('consent') or not profile.get('secondary' if v5 else 'linkedin_consent'):
                 store.record_skipped('Scheduled run skipped: onboarding or consent incomplete.')
                 return
             slot=due_slot(profile,previous=store.get('schedule_slot'))
@@ -87,7 +90,7 @@ def main():
                 store.record_skipped('Scheduled run skipped: not due or already attempted today.')
                 return
             store.set('schedule_slot',slot)
-            hunter=Hunter(root,store)
+            hunter=(ResearchHunter if v5 else Hunter)(root,store)
             hunter.start()
             hunter.thread.join()
             return

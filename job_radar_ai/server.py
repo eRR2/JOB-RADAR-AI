@@ -21,6 +21,8 @@ from .updates import check_release, version
 from .sources import PublicFetcher
 from .intent import TASK as INTENT_TASK, validate_with_evidence_correction, confirm_intent, legacy_text
 from .geography import location_status
+from .research import ResearchHunter
+from .access import linkedin_state
 
 CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 
@@ -30,8 +32,9 @@ class Application:
         self.root = Path(root).resolve()
         self.skill_mode = skill_mode
         self.workspace_id = hashlib.sha256((str(self.root) + '\n' + str(Path(database).resolve())).encode()).hexdigest()
-        self.store = Store(database)
-        self.hunter = Hunter(root, self.store)
+        self.v5 = (self.root/'version.json').is_file() and version(self.root).get('version','').startswith('5.')
+        self.store = Store(database, v5=self.v5)
+        self.hunter = (ResearchHunter if self.v5 else Hunter)(root, self.store)
         self.csrf = secrets.token_urlsafe(32)
         self.mutations = threading.RLock()
         self.operation = None
@@ -87,6 +90,7 @@ class Application:
                 'learning_explanation':self.store.get('learning_explanation',''), 'learning_paused':self.store.get('learning_paused',False),
                 'market_state':market_state, 'global_learned':self.store.get('learned:global',[]),
                 'budgets':self.store.get('budgets',DEFAULT_BUDGETS), 'linkedin_stop':self.store.get('linkedin_stop'),
+                'linkedin_access':linkedin_state(self.store) if self.v5 else None,
                 'linkedin_pending':self.store.get('linkedin_pending',False), 'linkedin_last_success':self.store.get('linkedin_last_success'),
                 'operation':self.operation, 'native_task':self.store.get('native_task'), 'timezone':datetime.now().astimezone().tzname(),
                 'skill_mode':self.skill_mode, 'catchup':self.catchup(),
@@ -149,7 +153,7 @@ class Application:
         while not stop.wait(20):
             with self.mutations:
                 profile = self.store.get('profile')
-                if not profile or not profile.get('consent') or not profile.get('linkedin_consent'):
+                if not profile or not profile.get('consent') or not profile.get('secondary' if self.v5 else 'linkedin_consent'):
                     continue
                 slot = due_slot(profile, previous=self.store.get('schedule_slot'))
                 if slot and not (self.operation and self.operation['status']=='running'):
@@ -273,6 +277,22 @@ def make_server(root, database, port=8767, skill_mode=False):
                     raise ValueError('Wait for the bounded public version check before closing.')
                 threading.Thread(target=server.shutdown, daemon=True).start()
                 return {'message':'Workspace closed. Your private data is saved.'}
+            if path in ('/api/routine','/api/connection') and app.v5:
+                if search_active or operation_active:
+                    raise ValueError('Finish or cancel the active operation before changing its input.')
+                profile=app.store.get('profile')
+                if not profile:raise ValueError('Confirm your career understanding first.')
+                if path=='/api/routine':
+                    if data.get('frequency') not in ('manual','daily','weekly') or not isinstance(data.get('time'),str) or not __import__('re').fullmatch(r'\d{2}:\d{2}',data['time']) or not 0<=int(data['time'][:2])<=23 or not 0<=int(data['time'][3:])<=59 or type(data.get('weekday')) is not int or not 0<=data['weekday']<=6:
+                        raise ValueError('Choose a valid local search time and weekday.')
+                    profile.update({k:data[k] for k in ('frequency','time','weekday')})
+                    app.store.set('schedule_slot',None);app.store.set('catchup_reminder',None)
+                else:
+                    if data.get('provider') not in ('codex','claude') or any(type(data.get(k)) is not bool for k in ('consent','linkedin_consent','secondary')):
+                        raise ValueError('Select provider and explicitly review processing/source permissions.')
+                    profile.update({k:data[k] for k in ('provider','consent','linkedin_consent','secondary')})
+                app.store.set('profile',profile)
+                return {'saved':True}
             if path in ('/api/intent-analysis','/api/intent-accept','/api/profile','/api/cv','/api/profile-accept','/api/learned','/api/learning-reset','/api/source-reset','/api/budgets','/api/feedback') and (search_active or operation_active):
                 raise ValueError('Wait for or cancel the active AI operation before changing its input or source policy.')
             if path == '/api/intent-analysis':
@@ -327,6 +347,8 @@ def make_server(root, database, port=8767, skill_mode=False):
                 app.store.preference_revision(bump=True)
                 return {'saved':True}
             if path == '/api/profile':
+                if app.v5:
+                    raise ValueError('Update career direction in your own words, then review the AI understanding.')
                 profile = validate_profile(data)
                 profile['cv_text'] = app.store.get('cv_text','')
                 profile['interpreted'] = (app.store.get('profile') or {}).get('interpreted')
@@ -473,13 +495,14 @@ def make_server(root, database, port=8767, skill_mode=False):
                 app.store.set('budgets',data)
                 return {'saved':True}
             if path == '/api/source-reset':
+                if app.v5:raise ValueError('Active source restrictions cannot be cleared here. Respect cooldown expiry or resolve the publisher restriction.')
                 if data.get('confirm')!='REVIEWED SOURCE STOP':
                     raise ValueError('Review restriction/unknown request extent before resetting. Reset is not permission to bypass access denial.')
                 app.store.set('linkedin_stop',None)
                 app.store.set('linkedin_pending',False)
                 return {'saved':True}
             if path == '/api/native-task':
-                if app.skill_mode:
+                if app.skill_mode or app.v5:
                     raise ValueError('Skill mode uses catch-up reminders only; OS scheduling is disabled.')
                 if data.get('confirm')!='CREATE WINDOWS TASK':
                     raise ValueError('Explicit confirmation required to create an operating-system task.')

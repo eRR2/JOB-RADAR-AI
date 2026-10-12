@@ -78,7 +78,7 @@ export async function runDetail(opts: DetailOpts): Promise<number> {
     }
     return 0
   } catch (e) {
-    writeError(e instanceof Error ? e.message : String(e), "DETAIL_FAILED")
+    writeError(e instanceof Error ? e.message : String(e), "DETAIL_FAILED", e)
     return 1
   }
 }

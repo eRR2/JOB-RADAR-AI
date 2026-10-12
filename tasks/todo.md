@@ -1,3 +1,19 @@
+# V5 delivery
+
+- [x] Verified actual Codex web-tool observations and indexed LinkedIn URLs before rewrite.
+- [x] Timed AI-led batches; raw CV excluded from web-enabled context; strict source grounding.
+- [x] Separate preliminary/full evaluations; exact description association and original URL.
+- [x] 429 Retry-After/cooldown, completed versus interrupted pending state, no same-run retry.
+- [x] Fresh generation-5 development storage; old private user copies removed explicitly.
+- [x] Simple onboarding, dynamic markets, automatic country feedback and application history.
+- [x] Focused Python/Bun/Node/JS/privacy checks and small real synthetic-profile acceptance.
+- [x] JobSpy source comparison and single-quote/mixed-case description parser fixtures.
+- [ ] Live full-description/evaluation evidence for V5's web-discovered vacancies.
+- [ ] Clean Windows VM, Claude web telemetry and visual/accessibility QA (browser block).
+- [ ] Stable Release/main merge: NOT authorized.
+
+The following tasks document historical branches.
+
 # V1 tasks
 
 ## V2 Phase 1

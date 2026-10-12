@@ -8,6 +8,8 @@ from .hunter import EVALUATION_TASK, prepare_evaluation, source_context, DEFAULT
 from .store import now
 import hashlib
 import re
+import time
+from .access import linkedin_state
 
 
 def description_state(job, store):
@@ -48,7 +50,8 @@ class DescriptionResolver:
                 if not jobs:
                     raise ValueError('Unknown job identity.')
             else:
-                jobs = [j for j in jobs if not j.get('description')][:10]
+                jobs = [j for j in jobs if not j.get('description')]
+                if not self.store.v5:jobs=jobs[:10]
             if not jobs:
                 raise ValueError('No missing descriptions to complete.')
             if supplied is not None:
@@ -67,15 +70,20 @@ class DescriptionResolver:
     def execute(self, run_id, jobs, cancel, supplied=None, selection=None):
         profile = self.store.get('profile') or {}
         budgets = self.store.get('budgets', DEFAULT_BUDGETS)
+        if self.store.v5:budgets={**budgets,'requests':float('inf'),'details':float('inf')}
         source = self.linkedin or LinkedIn(self.root, self.store, cancel, budgets)
-        fetcher = self.fetcher or PublicFetcher(self.store, cancel, budget=min(16, budgets['requests']),publisher_budget=4)
+        fetcher = self.fetcher or PublicFetcher(self.store, cancel, budget=float('inf') if self.store.v5 else min(16, budgets['requests']),publisher_budget=None if self.store.v5 else 4)
         ai = self.ai
         metrics = {key: 0 for key in ('attempted', 'recovered', 'unavailable', 'blocked', 'evaluated', 'remaining')}
         metrics['remaining']=sum(not j.get('description') for j in jobs)
         payload = {'kind': 'description_recovery', 'job_ids': [j['id'] for j in jobs], 'metrics': metrics,
                    'warnings': [], 'sources': [], 'outcomes':[], 'new_jobs': 0, 'previously_seen': len(jobs), 'descriptions': 0}
         try:
-            for job in jobs[:10]:
+            deadline=time.monotonic()+900
+            if self.store.v5:fetcher.deadline=deadline
+            for job in jobs if self.store.v5 else jobs[:10]:
+                if time.monotonic()>=deadline:
+                    payload['warnings'].append('Recovery time window reached; remaining opportunities retained.');break
                 if cancel.is_set():
                     raise ProviderError('Canceled by user.')
                 metrics['attempted'] += 1
@@ -100,7 +108,7 @@ class DescriptionResolver:
                     candidate = next(j for j in self.store.jobs() if j['id'] == job['id'])
                 else:
                     cached = self.store.cached('linkedin:detail:' + job.get('source_id', ''), 86400)
-                    li_stopped=bool(self.store.get('linkedin_stop') or self.store.get('linkedin_pending') or (job['id'].startswith('linkedin:') and job.get('description_status')=='blocked'))
+                    li_stopped=linkedin_state(self.store)['state']!='available' if self.store.v5 else bool(self.store.get('linkedin_stop') or self.store.get('linkedin_pending') or (job['id'].startswith('linkedin:') and job.get('description_status')=='blocked'))
                     if job['id'].startswith('linkedin:') and job.get('source_id') and (cached or (profile.get('linkedin_consent') and not li_stopped)):
                         requests_before=source.requests
                         try:
