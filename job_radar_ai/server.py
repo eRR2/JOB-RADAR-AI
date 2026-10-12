@@ -16,6 +16,9 @@ from .profile import validate_profile
 from .providers import Provider, bounded_process, executable
 from .schedule import install_task, due_slot, catchup_slot
 from .markets import market_profile, country_of, REGIONAL
+from .recovery import DescriptionResolver, description_state
+from .updates import check_release, version
+from .sources import PublicFetcher
 
 CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 
@@ -32,6 +35,24 @@ class Application:
         self.operation = None
         self.operation_thread = None
         self.operation_cancel = threading.Event()
+        self.release_status = None
+        self.update_check_running = False
+        self.update_cancel=threading.Event()
+        self.update_thread=None
+        if self.store.get('update_notifications', False):
+            self.check_updates()
+
+    def check_updates(self):
+        if self.update_check_running:
+            return
+        self.update_check_running = True
+        def check():
+            try:
+                self.release_status = check_release(self.root, PublicFetcher(self.store, self.update_cancel, budget=3))
+            finally:
+                self.update_check_running = False
+        self.update_thread=threading.Thread(target=check, daemon=True)
+        self.update_thread.start()
 
     def providers(self, refresh=False):
         statuses = self.store.get('providers', {})
@@ -47,6 +68,7 @@ class Application:
         jobs = self.store.jobs()
         markets=(profile or {}).get('markets',[])
         for job in jobs:
+            job['description_status'] = description_state(job, self.store)
             job['country_id']=country_of(job,markets)
             job['country_status']='country stated in source' if job['country_id'] else 'country unverified'
             for key,item in job['market_evaluations'].items():
@@ -62,7 +84,10 @@ class Application:
                 'budgets':self.store.get('budgets',DEFAULT_BUDGETS), 'linkedin_stop':self.store.get('linkedin_stop'),
                 'linkedin_pending':self.store.get('linkedin_pending',False), 'linkedin_last_success':self.store.get('linkedin_last_success'),
                 'operation':self.operation, 'native_task':self.store.get('native_task'), 'timezone':datetime.now().astimezone().tzname(),
-                'skill_mode':self.skill_mode, 'catchup':self.catchup()}
+                'skill_mode':self.skill_mode, 'catchup':self.catchup(),
+                'version':version(self.root) if (self.root/'version.json').exists() else {'version':'2.1-preview','channel':'preview'},
+                'updates':self.release_status, 'update_check_running':self.update_check_running,
+                'update_notifications':self.store.get('update_notifications',False)}
 
     def catchup(self):
         profile = self.store.get('profile')
@@ -213,11 +238,30 @@ def make_server(root, database, port=8767, skill_mode=False):
         def mutate(self, path, data):
             search_active=any(run['status']=='running' for run in app.store.runs())
             operation_active=bool(app.operation and app.operation['status']=='running')
+            if path == '/api/check-updates':
+                app.check_updates()
+                return {'checking':True}
+            if path == '/api/update-notifications':
+                if type(data.get('enabled')) is not bool:
+                    raise ValueError('Choose whether to check public version metadata at startup.')
+                app.store.set('update_notifications',data['enabled'])
+                return {'saved':True}
+            if path in ('/api/resolve-description','/api/complete-descriptions','/api/supplied-description'):
+                if search_active or operation_active:
+                    raise ValueError('Wait for or cancel the active AI operation first.')
+                if path != '/api/complete-descriptions' and not isinstance(data.get('job_id'),str):
+                    raise ValueError('Select an existing vacancy.')
+                if path=='/api/supplied-description' and not isinstance(data.get('description'),str):
+                    raise ValueError('Paste the description for this exact vacancy.')
+                return {'run_id':DescriptionResolver(app.hunter).start(data.get('job_id') if path!='/api/complete-descriptions' else None,
+                                    data.get('description') if path=='/api/supplied-description' else None)}
             if path == '/api/catchup':
                 return app.catchup_action(data)
             if path == '/api/close' and app.skill_mode:
                 if search_active or operation_active:
                     raise ValueError('Cancel or finish the AI operation before closing your workspace.')
+                if app.update_check_running:
+                    raise ValueError('Wait for the bounded public version check before closing.')
                 threading.Thread(target=server.shutdown, daemon=True).start()
                 return {'message':'Workspace closed. Your private data is saved.'}
             if path in ('/api/profile','/api/cv','/api/profile-accept','/api/learned','/api/learning-reset','/api/source-reset','/api/budgets','/api/feedback') and (search_active or operation_active):

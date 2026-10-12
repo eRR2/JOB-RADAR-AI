@@ -1,6 +1,6 @@
 # Windows: second-user setup with Codex Desktop
 
-V2 Phase 2.1 is on `feat/v2-phase2-1-release-readiness`, **not GitHub main**.
+V2 Phase 3 preview is on `feat/v2-phase3-recovery-updates`, **not GitHub main**.
 Use a separate Windows account/PC and that user's own ChatGPT subscription.
 VS Code, Git, manual Python/Bun installation and a Windows installer are not required.
 PowerShell and permission for local files, processes, downloads and browser launch are required.
@@ -15,7 +15,7 @@ The bootstrap currently supports Windows x64; ARM64 and organizational restricti
 
 ```text
 JOB-RADAR AI'yi bu Windows bilgisayarda benim için kur ve tarayıcıda aç:
-https://github.com/eRR2/JOB-RADAR-AI/tree/feat/v2-phase2-1-release-readiness
+https://github.com/eRR2/JOB-RADAR-AI/tree/feat/v2-phase3-recovery-updates
 Bu dalın docs/INSTALL_CODEX_DESKTOP.md yönergesini oku. Yeni uygulama klasörünü
 %LOCALAPPDATA%\JOB-RADAR-AI\app altında hazırla ve belgelenmiş kullanıcı
 skill klasörüne job-radar-ai kaydı ekle. Mevcut kurulum/veri/skill varsa koru.
@@ -84,13 +84,14 @@ Desktop login automatically supplies a working external CLI is made.
 
 ## Later upgrades
 
-Close workspace first. Obtain/review the new public source archive in a separate staging folder
-and run its `install-workspace.ps1` against the **same** destination. It verifies all prior code
-hashes, new-file collisions and database locks before copying code, removes only obsolete managed source files and
-preserves `.private` CV, SQLite, feedback, reports, runtime and backups. Modified code, a running
-workspace or an unmanaged directory stops the upgrade before copying. Filesystem write failures
-can leave an incomplete code upgrade: stop and repair source files; never delete/reset `.private`.
-Do not upgrade by replacing the entire application folder or importing someone else's private state.
+Ask Codex **Update my JOB-RADAR AI**. Follow [the exact-release update workflow](UPDATES.md):
+discover the same workspace from the registered canonical skill, review stable GitHub Release
+notes/commit/archive hashes, request approval, close the dashboard and create verified private
+and code backups. The updater validates the staged package, replaces code with a recovery
+journal, rolls back a failed copy and blocks startup after an interruption until recovery.
+Do not replace the entire application folder or import someone else's private state.
+`install-workspace.ps1` is now only for a first installation; installed users use the reviewed
+staging `scripts/update-workspace.py`. No stable Release is published by this phase.
 
 For existing Git checkouts (including development), use reviewed Git updates without resetting
 user changes and keep the same `.private` directory. This phase changes no database schema;

@@ -46,7 +46,7 @@ denies access, no retries, resets or substitute routes for that verification.
 
 Copying only this skill package elsewhere does not ship the app. A full repository
 checkout or reviewed public source archive remains necessary. V2 is on
-`feat/v2-phase2-1-release-readiness`: GitHub main does not contain these changes.
+`feat/v2-phase3-recovery-updates`: GitHub main does not contain these changes.
 Claude invocation conventions are documented, but live
 execution needs Claude installed. See `docs/V2_PHASE1.md` in the checkout for
 runtime decisions, clean-machine limits and current evidence.

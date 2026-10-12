@@ -43,3 +43,14 @@
 - [x] Windows launcher command-completion regression and preserved existing catch-up/history/data boundaries.
 - [ ] Fully clean Windows VM, second-person login and actual Codex Desktop user-skill/folder UI.
 - [ ] Complete browser accessibility audit and live Claude verification.
+
+## V2 Phase 3
+
+- [x] Bounded individual/batch existing-job description resolver; controlled HTTPS text/API retrieval and strong identity gates.
+- [x] Exact source evidence, state distinctions, original identities/history, labeled supplied text and existing country-specific AI review.
+- [x] Approved isolated ten-job live test: six descriptions and six assessments, five LinkedIn + eight controlled public requests; four missing outcomes retained.
+- [x] Preview version, public stable Release metadata check and optional startup notification; no private context in version requests.
+- [x] Same managed workspace update with consent, verified private/code backup, integrity checks, copy rollback and interrupted journal recovery.
+- [x] Synthetic source/update/security/privacy regressions and actual in-app browser click verification.
+- [ ] First stable Release/tag after separate owner approval, exact asset/commit/SHA publication and real second-PC update smoke test.
+- [ ] Clean Windows VM, complete accessibility audit, live Claude and live public ATS API coverage beyond the approved employer JobPosting test.

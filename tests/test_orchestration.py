@@ -1,6 +1,7 @@
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from job_radar_ai.hunter import Hunter
 from job_radar_ai.store import Store
@@ -59,10 +60,31 @@ class OrchestrationTests(unittest.TestCase):
         self.assertIsNone(jobs['linkedin:111111']['evaluation'])
 
     def test_search_url_telemetry_cannot_prove_a_fabricated_description(self):
-        store=self.run_hunter(ScriptedSource(),ScriptedAI(research=True))
+        from job_radar_ai.sources import RetrievalError
+        with patch('job_radar_ai.hunter.retrieve_candidates',side_effect=RetrievalError('unverified','Synthetic source unavailable')):
+            store=self.run_hunter(ScriptedSource(),ScriptedAI(research=True))
         self.assertEqual(len(store.jobs()),2)
         self.assertEqual(store.runs()[0]['status'],'partial')
         self.assertTrue(any('complete source text' in warning for warning in store.runs()[0]['payload']['warnings']))
+
+    def test_controlled_real_text_fixes_missing_provider_page_telemetry_without_trusting_prose(self):
+        from test_recovery import FixtureFetcher,page,posting,TEXT,URL
+        import json
+        class AI(ScriptedAI):
+            def run(self,kind,task,context,**options):
+                if kind=='research':
+                    return {'jobs':[{'url':URL,'title':'Systems Lead','company':'Synthetic Employer','location':'Berlin, Germany',
+                                    'requisition_id':'REQ-42','description':'Model-generated false responsibilities','evidence_quote':'Lead systems team'}],
+                            'limitations':[],'summary':'Source locator only'}
+                return super().run(kind,task,context,**options)
+        pages={URL:page('<script type="application/ld+json">'+json.dumps(posting())+'</script>')}
+        with patch('job_radar_ai.hunter.PublicFetcher',side_effect=lambda store,*a,**kw:FixtureFetcher(store,pages)):
+            store=self.run_hunter(ScriptedSource(),AI(research=True))
+        web=next(j for j in store.jobs() if j['id'].startswith('web:'))
+        self.assertEqual(web['description'],TEXT.strip())
+        self.assertNotIn('Model-generated',web['description'])
+        self.assertEqual(web['description_status'],'public_verified')
+        self.assertIsNotNone(web['evaluation'])
 
     def test_partial_pagination_keeps_first_page_and_separate_failure(self):
         class Source(ScriptedSource):

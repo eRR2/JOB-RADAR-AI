@@ -9,6 +9,7 @@ from .linkedin import LinkedIn, SourceError
 from .providers import Provider, ProviderError
 from .store import now
 from .markets import market_profile, query_locations, validate_queries, country_of
+from .sources import PublicFetcher, retrieve_candidates, match_identity, RetrievalError
 
 DEFAULT_BUDGETS = {'searches': 3, 'pages': 1, 'details': 5, 'requests': 8, 'spacing': 5}
 
@@ -37,7 +38,7 @@ def source_context(job):
     # Stored jobs also contain all-market assessments, feedback and application
     # outcomes. Only source facts cross into triage/evaluation; explicit learning
     # arrives through the separately scoped feedback channel.
-    fields=('id','source_id','source','title','company','location','country_id','url','description','availability','evidence','description_obtained')
+    fields=('id','source_id','source','title','company','location','country_id','url','description','availability','evidence','description_obtained','description_source_url','description_status')
     return {key:job[key] for key in fields if key in job}
 
 
@@ -78,6 +79,7 @@ class Hunter:
         self.cancel = threading.Event()
         self.thread = None
         self.lock = threading.Lock()
+        self.public_fetcher = None
 
     def start(self, market_id='all'):
         with self.lock:
@@ -94,6 +96,7 @@ class Hunter:
             if run_id is None:
                 return None
             self.cancel = threading.Event()
+            self.public_fetcher = None
             self.thread = threading.Thread(target=self.execute, args=(run_id, self.cancel), kwargs={'market_id':market_id}, daemon=True)
             self.thread.start()
             return run_id
@@ -151,6 +154,8 @@ class Hunter:
             self.store.update_run(run_id,reason,{'warnings':[reason]},'canceled' if cancel.is_set() else 'failed')
 
     def _execute_markets(self, run_id, cancel, ai=None, source=None, market_id='all'):
+        if self.public_fetcher is None:
+            self.public_fetcher=PublicFetcher(self.store,cancel,budget=3)
         profile=self.store.get('profile')
         if not profile.get('markets'):
             return self._execute_market(run_id,cancel,ai,source)
@@ -337,16 +342,33 @@ class Hunter:
                                 {'queries': plan['research_queries'], 'role_families': plan['role_families']}, research=True)
                 telemetry = ai.telemetry
                 counters['research'] = {'summary': research['summary'], 'limitations': research['limitations'], 'web_calls': telemetry.get('web_calls', 0)}
-                pages=telemetry.get('fetched_pages',{})
+                fetcher=self.public_fetcher or PublicFetcher(self.store,cancel,budget=3)
                 accepted = 0
                 for result in research['jobs']:
-                    parsed = urlsplit(result['url'])
-                    canonical = parsed._replace(query='', fragment='').geturl()
-                    retrieved=pages.get(canonical,'')
-                    if parsed.scheme != 'https' or not parsed.hostname or parsed.username or not retrieved or not result['description'] or not result['evidence_quote'].strip() or folded(result['evidence_quote']) not in folded(retrieved) or folded(result['description']) not in folded(retrieved):
-                        counters['warnings'].append('Provider web search/fetch did not expose complete source text for evidence verification; supplementary vacancy not imported.')
+                    try:
+                        alternatives=retrieve_candidates(result['url'],fetcher)
+                        matching=[]
+                        for candidate in alternatives:
+                            try:
+                                matching.append(match_identity(result,candidate,original.get('markets')))
+                            except RetrievalError:
+                                pass
+                        if len(matching)!=1:
+                            raise RetrievalError('unverified','No unique verified public source identity.')
+                        retrieved=matching[0]
+                        if not result['evidence_quote'].strip() or folded(result['evidence_quote']) not in folded(retrieved['description']):
+                            raise RetrievalError('unverified','AI research quote not found in fetched source text.')
+                    except SourceError as exc:
+                        counters['warnings'].append('Controlled retrieval could not verify complete source text; supplementary vacancy not imported. '+str(exc))
+                        if getattr(exc,'status','')=='blocked':
+                            break
                         continue
-                    job = {**result, 'id': 'web:' + hashlib.sha256(canonical.encode()).hexdigest()[:24], 'source': 'AI web research', 'availability': 'unknown', 'description_obtained': now(), 'evidence': result['evidence_quote']}
+                    canonical=retrieved['source_url']
+                    evidence={key:retrieved['evidence'][key] for key in ('url','sha256','bytes','at')}
+                    job = {**{key:retrieved[key] for key in ('title','company','location','requisition_id','description')},
+                           'url':canonical, 'id': 'web:' + hashlib.sha256(canonical.encode()).hexdigest()[:24], 'source': 'Verified public source',
+                           'description_source_url':canonical,'description_source':{**evidence,'kind':'public_verified'},'description_status':'public_verified',
+                           'availability': 'unknown', 'description_obtained': now(), 'evidence': result['evidence_quote']}
                     if market:
                         job['country_id']=country_of(job,original['markets'])
                     new = self.store.upsert_job(job, run_id,market['id'] if market else None)
@@ -354,6 +376,7 @@ class Hunter:
                     candidates[job['id']] = descriptions[job['id']] = job
                     accepted += 1
                 counters['sources'].append({'source': 'AI web research', 'status': 'success' if accepted else 'unverified', 'count': accepted, 'reason': '; '.join(research['limitations']) or 'Verified tool retrieval required', 'at': now()})
+                counters['controlled_source_requests']=fetcher.requests
             if descriptions:
                 counters['available_descriptions']=len(descriptions)
                 counters['description_ids']=list(descriptions)

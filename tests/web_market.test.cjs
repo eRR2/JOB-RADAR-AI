@@ -32,6 +32,46 @@ function fixture(){
 }
 function nodes(root){return [root,...(root.children||[]).flatMap(nodes)];}
 
+test('missing description controls retain exact identity and explicit supplied-text label',async()=>{
+  const {run,context}=fixture();const calls=[];
+  context.capture=(path,data)=>calls.push({path,data});run('act=async(path,data)=>capture(path,data)');
+  run(`state.jobs=[{id:'NL',country_id:'NL',title:'Synthetic lead',location:'Amsterdam, Netherlands',application_status:'saved',description_status:'budget_deferred',feedback:[],events:[],market_evaluations:{}}];`);
+  const panel=run('descriptionPanel(state.jobs[0])');
+  assert.match(panel.text,/Detail deferred by budget/);assert.match(panel.text,/labeled user-supplied/);
+  await nodes(panel).find(n=>n.tag==='button'&&n.text==='Find full description').handlers.click();
+  assert.equal(calls[0].path,'/api/resolve-description');assert.equal(calls[0].data.job_id,'NL');
+  const supplied=nodes(panel).find(n=>n.tag==='textarea');supplied.value='Synthetic supplied text';
+  await nodes(panel).find(n=>n.tag==='button'&&n.text==='Use supplied description').handlers.click();
+  assert.equal(calls[1].path,'/api/supplied-description');assert.equal(calls[1].data.description,supplied.value);
+});
+
+test('bounded batch and update metadata buttons do not claim control of Codex chat',async()=>{
+  const {run,context}=fixture();const calls=[];
+  context.capture=(path,data)=>calls.push({path,data});run('act=async(path,data)=>capture(path,data)');
+  run(`state.jobs=[{id:'DE',country_id:'DE',title:'Synthetic',company:'Synthetic',application_status:'none',market_evaluations:{},feedback:[],events:[]}];`);
+  const discovery=run('discover()');
+  await nodes(discovery).find(n=>n.tag==='button'&&n.text==='Complete missing descriptions').handlers.click();
+  assert.equal(calls[0].path,'/api/complete-descriptions');
+  const updates=run('updatePanel()');
+  assert.match(updates.text,/does not control your Codex chat/);assert.match(updates.text,/approval/);
+  await nodes(updates).find(n=>n.tag==='button'&&n.text==='Check for updates').handlers.click();
+  assert.equal(calls[1].path,'/api/check-updates');
+  assert.equal(Object.keys(calls[1].data).length,0);
+});
+
+test('recovery report shows distinct attempted recovered blocked evaluated and remaining metrics',()=>{
+  const {run}=fixture();
+  const panel=run(`reportPanel({id:7,status:'partial',payload:{kind:'description_recovery',metrics:{attempted:10,recovered:6,unavailable:3,blocked:1,evaluated:6,remaining:4},job_ids:[],sources:[],warnings:[]}})`);
+  for(const key of ['attempted','recovered','unavailable','blocked','evaluated','remaining'])assert.match(panel.text,new RegExp(key));
+});
+
+test('recovery country reports count only that country outcomes',()=>{
+  const {run}=fixture();
+  const panel=run(`marketTab='DE';reportPanel({id:8,status:'partial',payload:{kind:'description_recovery',metrics:{attempted:2},outcomes:[{job_id:'DE',country_id:'DE',available:true,recovered:true,evaluated:true,status:'public_verified'},{job_id:'NL',country_id:'NL',available:false,recovered:false,evaluated:false,status:'blocked'}],job_ids:['DE','NL'],sources:[{job_id:'DE',source:'German source',status:'success'},{job_id:'NL',source:'Dutch source',status:'blocked'}],warnings:[]}})`);
+  assert.match(panel.text,/German source/);assert.doesNotMatch(panel.text,/Dutch source/);
+  assert.match(panel.text,/0 blocked/);assert.match(panel.text,/1 recovered/);
+});
+
 test('one Like revision retains stale Recommended and regional selection is isolated',()=>{
   const {run}=fixture();
   run(`state.jobs=['DE','NL'].map(id=>({id,location:id,country_id:id,first_seen:'2026-01-01',application_status:'none',feedback:[],events:[],market_ids:[id],market_evaluations:{[id]:{evaluation:{recommend:true,category:'direct',summary:'Synthetic',assessment_version:2},assessment_stale:id==='NL'}}}));`);

@@ -2,6 +2,12 @@
 
 Your own AI subscription, a local career workspace, and opportunities judged by their actual responsibilities.
 
+Phase 3 preview adds **Find full description**, a bounded **Complete missing descriptions**
+operation, independently fetched source evidence and country-specific reassessment of existing
+jobs. User-supplied descriptions are labeled. [Safe updates](docs/UPDATES.md) use exact reviewed
+GitHub Releases, the same installed workspace, verified private backups and code rollback.
+No stable release/tag is created by this phase. [Phase 3 evidence](docs/V2_PHASE3.md).
+
 JOB-RADAR AI is a single-user Windows-first browser application. Codex or Claude Code interprets your CV, creates search queries and exploratory role families, selects descriptions to investigate, assesses ATS/CV readiness and hiring-manager fit, learns from explicit feedback, and writes career reports. SQLite preserves your discoveries and application history. There is no hosted AI service or additional API-key billing fallback.
 
 ## V2 Windows setup with Codex Desktop
@@ -11,7 +17,7 @@ in [the first-time installation guide](docs/INSTALL_CODEX_DESKTOP.md). Codex
 prepares a separate local workspace from the public source archive, registers
 the skill and opens the dashboard. No VS Code, Git, manual Python/Bun commands
 or Windows installer is required. The current V2 branch is
-[`feat/v2-phase2-1-release-readiness`](https://github.com/eRR2/JOB-RADAR-AI/tree/feat/v2-phase2-1-release-readiness);
+[`feat/v2-phase3-recovery-updates`](https://github.com/eRR2/JOB-RADAR-AI/tree/feat/v2-phase3-recovery-updates);
 **main still contains V1**.
 
 Missing runtimes and the optional standalone Codex CLI have separate private,
@@ -79,7 +85,7 @@ Guest endpoints are unsupported and automated use can conflict with LinkedIn ter
 
 Defaults are 3 dynamically chosen searches, one page per query, 5 selected descriptions, and at most 8 network requests with at least 5 seconds spacing persisted across runs. Preferences exposes bounded changes. Successful searches cache for 2 hours, descriptions for 24 hours; cache reads do not extend freshness. No automatic retries are made. Restrictions, CAPTCHA/auth walls, redirects and unknown request extent after timeout/interruption persist a stop. Review the source stop explicitly; resetting it is not permission to bypass or retry access denial. Search all splits these caps fairly between countries using one shared transport; it never multiplies the global LinkedIn request budget.
 
-Supplementary official-careers/ATS research is optional and uses the chosen provider's real web tools. **V1 currently cannot verify full fetched-page text through the adapters' available CLI output.** Codex can expose actual web actions/URLs, while Claude's JSON result lacks a full tool trace. These are insufficient to validate an entire description, so supplementary vacancies are **not imported** and a visible limitation is reported when research runs. Search/model prose never proves retrieval. LinkedIn full-description analysis works independently. No custom secondary scraper or paid search API is introduced.
+Supplementary official-careers/ATS research is optional and uses the chosen provider's real web tools to locate sources. Phase 3 retrieves actual public text through a bounded HTTPS fetcher, documented Greenhouse/Lever/Ashby APIs or JobPosting structured data. Full descriptions are accepted only after exact employer/title/country/locality and known requisition checks; supplementary research quotes must also occur in the fetched text. Search/model prose and provider web activity alone never prove retrieval. Restricted, ambiguous or incomplete sources remain visibly unverified. LinkedIn full-description analysis uses its existing integration independently; no paid search API is required. See [source coverage and live evidence](docs/V2_PHASE3.md).
 
 ## V1 scheduling (legacy launcher only)
 

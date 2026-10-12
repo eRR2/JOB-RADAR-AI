@@ -10,8 +10,16 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+function File-Sha256([string]$path) {
+    $stream=[IO.File]::OpenRead($path); $algorithm=[Security.Cryptography.SHA256]::Create()
+    try { return [BitConverter]::ToString($algorithm.ComputeHash($stream)).Replace('-','').ToLowerInvariant() }
+    finally { $algorithm.Dispose(); $stream.Dispose() }
+}
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $private = Join-Path $root '.private'
+if (Test-Path -LiteralPath (Join-Path $private 'updates/transaction.json')) {
+    throw 'Interrupted update detected. Ask Codex to recover this same managed workspace; private data is retained.'
+}
 $databasePath = [IO.Path]::GetFullPath((Join-Path $root $Database))
 if (-not $databasePath.StartsWith($private + '\', [StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetExtension($databasePath) -ne '.sqlite3') {
     throw 'Database must be a .sqlite3 file below this checkout .private directory.'
@@ -70,7 +78,7 @@ function Get-Archive($name) {
     $entry = $manifest.$name
     $archive = Join-Path $runtime "$name.zip"
     if (-not (Test-Path -LiteralPath $archive)) { Invoke-WebRequest -UseBasicParsing -Uri $entry.url -OutFile $archive }
-    if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $entry.sha256) {
+    if ((File-Sha256 $archive) -ne $entry.sha256) {
         throw 'Runtime checksum mismatch. Nothing from this archive was executed.'
     }
     Expand-Archive -LiteralPath $archive -DestinationPath (Join-Path $runtime $name) -Force

@@ -11,6 +11,26 @@ from job_radar_ai.contracts import WEIGHTS
 
 
 class HTTPTests(unittest.TestCase):
+    def test_recovery_and_update_routes_keep_csrf_running_and_input_guards(self):
+        token=json.load(self.request('/api/state'))['csrf']
+        headers={'X-Radar-CSRF':token,'Origin':self.url}
+        for route in ('/api/resolve-description','/api/complete-descriptions','/api/supplied-description','/api/check-updates','/api/update-notifications'):
+            with self.assertRaises(urllib.error.HTTPError) as error:self.request(route,{}, {'Origin':'https://evil.invalid'})
+            self.assertEqual(error.exception.code,403)
+        with patch('job_radar_ai.server.DescriptionResolver') as resolver:
+            resolver.return_value.start.return_value=7
+            self.request('/api/resolve-description',{'job_id':'synthetic'},headers).close()
+            resolver.return_value.start.assert_called_with('synthetic',None)
+            self.request('/api/complete-descriptions',{},headers).close()
+            resolver.return_value.start.assert_called_with(None,None)
+            with self.assertRaises(urllib.error.HTTPError):self.request('/api/supplied-description',{'job_id':'synthetic'},headers)
+            self.server.app.store.start_run('codex')
+            with self.assertRaises(urllib.error.HTTPError):self.request('/api/resolve-description',{'job_id':'synthetic'},headers)
+        with patch.object(self.server.app,'check_updates') as check:
+            self.request('/api/check-updates',{},headers).close();check.assert_called_once()
+        self.request('/api/update-notifications',{'enabled':True},headers).close()
+        self.assertTrue(self.server.app.store.get('update_notifications'))
+        with self.assertRaises(urllib.error.HTTPError):self.request('/api/update-notifications',{'enabled':'yes'},headers)
     def test_scoped_feedback_and_market_search_use_guarded_endpoints(self):
         from job_radar_ai.markets import defaults
         self.server.app.store.set('profile',{'provider':'codex','markets':defaults()})

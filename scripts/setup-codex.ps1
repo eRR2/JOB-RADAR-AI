@@ -3,6 +3,11 @@
 param([switch]$ApproveDownload, [switch]$Login, [switch]$PrivateOnly)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+function File-Sha256([string]$path) {
+    $stream=[IO.File]::OpenRead($path); $algorithm=[Security.Cryptography.SHA256]::Create()
+    try { return [BitConverter]::ToString($algorithm.ComputeHash($stream)).Replace('-','').ToLowerInvariant() }
+    finally { $algorithm.Dispose(); $stream.Dispose() }
+}
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $entry = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'runtime-manifest.json') -Raw | ConvertFrom-Json).codex
 $folder = Join-Path $root ('.private/runtime/codex/' + $entry.version)
@@ -30,7 +35,7 @@ if (-not (Test-Path -LiteralPath $binary)) {
     try {
         $archive = Join-Path $folder 'codex.zip'
         if (-not (Test-Path -LiteralPath $archive)) { Invoke-WebRequest -UseBasicParsing -Uri $entry.url -OutFile $archive }
-        if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $entry.sha256) { throw 'Codex checksum mismatch. No downloaded code was executed; remove the damaged private ZIP before retrying.' }
+        if ((File-Sha256 $archive) -ne $entry.sha256) { throw 'Codex checksum mismatch. No downloaded code was executed; remove the damaged private ZIP before retrying.' }
         # Keep the official package's adjacent resources/helpers with its native executable.
         $unpacked = $folder
         Expand-Archive -LiteralPath $archive -DestinationPath $unpacked -Force

@@ -52,9 +52,16 @@ def main():
         parser.error('Database must be a .sqlite3 file below this project’s .private directory.')
     if not 1<=args.port<=65535:
         parser.error('Invalid localhost port.')
+    if (root/'.private/updates/transaction.json').exists():
+        parser.error('Interrupted update detected. Ask Codex to recover the managed workspace before launching; private data is retained.')
+    try:
+        update_lock=ProcessLock(root/'.private/update.lock')
+    except RuntimeError:
+        parser.error('Workspace is running or updating. Wait for the update or reuse its dashboard.')
     try:
         lock=ProcessLock(database.with_suffix('.lock'))
     except RuntimeError:
+        update_lock.close()
         if args.skill_mode:
             parser.error('Workspace already running. Reuse the verified URL through the skill launcher.')
         if args.scheduled:
@@ -104,11 +111,15 @@ def main():
             hunter.cancel.set()
             hunter.thread.join()
         if server:
+            server.app.update_cancel.set()
+            if server.app.update_thread and server.app.update_thread.is_alive():
+                server.app.update_thread.join()
             server.app.operation_cancel.set()
             if server.app.operation_thread and server.app.operation_thread.is_alive():
                 server.app.operation_thread.join()
             server.server_close()
         lock.close()
+        update_lock.close()
 
 
 if __name__=='__main__':

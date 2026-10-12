@@ -6,6 +6,11 @@ param(
     [string]$Revision = 'local-reviewed'
 )
 $ErrorActionPreference='Stop'
+function File-Sha256([string]$path) {
+    $stream=[IO.File]::OpenRead($path); $algorithm=[Security.Cryptography.SHA256]::Create()
+    try { return [BitConverter]::ToString($algorithm.ComputeHash($stream)).Replace('-','') }
+    finally { $algorithm.Dispose(); $stream.Dispose() }
+}
 $source=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $target=[IO.Path]::GetFullPath($Destination)
 if ($source -eq $target -or $target.StartsWith($source+'\',[StringComparison]::OrdinalIgnoreCase) -or $source.StartsWith($target+'\',[StringComparison]::OrdinalIgnoreCase)) { throw 'Source package and application workspace must be separate.' }
@@ -33,7 +38,7 @@ foreach ($file in $files) {
     if ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Source package links are unsupported.' }
     $relative=$file.FullName.Substring($source.Length+1)
     $null=Safe-Target $relative
-    $hashes[$relative]=(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+    $hashes[$relative]=File-Sha256 $file.FullName
 }
 $manifestPath=Join-Path $target '.private/install-manifest.json'
 if ((Test-Path -LiteralPath (Join-Path $target '.private')) -and ((Get-Item -LiteralPath (Join-Path $target '.private') -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Linked private storage is unsupported; use an independent local workspace.' }
@@ -43,7 +48,7 @@ if (Test-Path -LiteralPath $target) {
         $previous=Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
         foreach ($property in $previous.files.PSObject.Properties) {
             $path=Safe-Target $property.Name
-            if (-not (Test-Path -LiteralPath $path) -or (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $property.Value) { throw 'Local application files changed. Upgrade refused; existing data and code were not overwritten.' }
+            if (-not (Test-Path -LiteralPath $path) -or (File-Sha256 $path) -ne $property.Value) { throw 'Local application files changed. Upgrade refused; existing data and code were not overwritten.' }
         }
         foreach ($relative in $hashes.Keys) {
             if (@($previous.files.PSObject.Properties.Name) -notcontains $relative -and (Test-Path -LiteralPath (Safe-Target $relative))) { throw 'A new source file conflicts with an existing local file. Upgrade refused before copying.' }
@@ -61,6 +66,7 @@ try {
             try { $handle.Lock(0,1) } catch { throw 'Close workspace in the dashboard before upgrading.' }
         }
     }
+    if ($previous) { throw 'Managed workspace already exists. Use scripts/update-workspace.py from the reviewed staging package, with user approval and a verified backup; this first-install helper cannot overwrite installed code.' }
     foreach ($file in $files) {
         $relative=$file.FullName.Substring($source.Length+1)
         $path=Safe-Target $relative

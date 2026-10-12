@@ -39,9 +39,11 @@ class InstallationTests(unittest.TestCase):
         (private/'cv').mkdir(); (private/'cv/synthetic.docx').write_bytes(b'Synthetic user CV')
         before={str(p.relative_to(private)):p.read_bytes() for p in private.rglob('*') if p.is_file() and p.name!='install-manifest.json'}
         (self.package/'README.md').write_text('Synthetic upgrade')
-        self.assertTrue(self.install()['upgraded'])
+        result=self.run_script('install-workspace.ps1','-Destination',self.target)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('update-workspace.py',result.stderr)
         self.assertEqual(before,{str(p.relative_to(private)):p.read_bytes() for p in private.rglob('*') if p.is_file() and p.name!='install-manifest.json'})
-        self.assertEqual((self.target/'README.md').read_text(),'Synthetic upgrade')
+        self.assertEqual((self.target/'README.md').read_text(),'Synthetic public application')
 
     def test_private_source_and_unmanaged_existing_destination_fail_before_copy(self):
         (self.package/'.private').mkdir(); (self.package/'.private/developer.txt').write_text('Synthetic developer secret')

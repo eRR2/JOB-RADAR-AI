@@ -39,7 +39,19 @@ flowchart LR
 
 ## Secondary source boundary
 
-Actual Codex JSONL web actions prove a tool was invoked, not that model-proposed description text equals a retrieved page. Claude JSON structured results expose even less tool evidence. Until an adapter can supply a successful fetch's actual complete text, secondary imports are refused and shown as unverified. `fetched_pages` is an intentionally unsupported telemetry capability in V1, not populated from model prose or query URLs. The research contract and source verifier are ready for a future documented trace capability; no hidden direct scraper fills this gap.
+Actual provider web actions prove tool activity, not model-proposed page text. Phase 3 uses
+AI only to locate public source URLs, then `sources.py` fetches real text in a bounded child
+worker. HTTPS DNS answers must all be public; numeric IP is pinned and original TLS host
+verified, closing DNS rebinding. No proxies/auth/cookies, bounded bytes/deadlines, robots
+policy, safe same-host redirects and persistent publisher-family stops. LinkedIn denial
+also forbids alternative-source recovery. Documented read-only Greenhouse/Lever/Ashby
+APIs and JobPosting JSON-LD provide source facts; Lever/Ashby require fetched employer
+ownership because their feeds omit employer names. Exact employer/title/locality/country
+and any known requisition, unique candidate and real full text gate association.
+Original identity/history remain; separate description URL/hash/time/identity evidence
+is stored. Provider-generated description prose never populates fetched-page evidence.
+`recovery.py` shares Hunter's one-run/cancel gate and existing scoped evaluation contract.
+Schema 2 remains unchanged; description states/evidence use existing job JSON payloads.
 
 ## UI and private state
 
@@ -49,7 +61,21 @@ Canonical skill instructions and one workflow reference are shared through platf
 
 ## Changes needing new decisions
 
-Provider CLI telemetry capable of verifiable secondary page content; live Claude support; real browser visual/accessibility QA; end-user prerequisite bootstrap/distribution signing; parser memory isolation; native task update/removal UX; release upgrade migrations. macOS/Linux remain feasible but unverified. No Outlook, auto-applying or off-machine scheduling is included.
+Live Claude support; complete browser accessibility QA; distribution signing; parser memory
+isolation; native task update/removal UX; future release DB migrations. macOS/Linux remain
+unverified. No Outlook, auto-applying or off-machine scheduling is included.
+
+## Phase 3 update boundary
+
+Version metadata checks use only the fixed public GitHub Releases endpoint. No private
+context or workspace ID is transmitted. Startup notification is opt-in. Stable download
+requires exact release asset/commit and independently reviewed SHA before staging.
+`updates.py` validates all package paths/inventory/hashes, locks a closed managed workspace,
+verifies old code plus private byte hashes and SQLite schema/rows, journals code replacement,
+rolls back copying errors and retains interrupted transactions for explicit recovery. The
+journal-aware launcher is copied first; startup refuses incomplete replacements. The same
+private path, runtime, skill association and provider login remain. No automatic DB restore,
+schema change, silent download/update, branch-tip stable distribution or release publication.
 
 ## V2 Phase 2 market state
 

@@ -10,7 +10,19 @@ Use Preferences/onboarding: upload a readable text PDF or DOCX, enter natural-la
 
 ## Dynamic discovery
 
-Review preserved legacy geography in Preferences, save regional conditions and confirm review before searching. Use Search this country or Search all markets after consent. Every market gets an independent AI plan, constrained country-qualified query locations, regional feedback, evaluations and outcomes under one shared LinkedIn transport/budget/stop latch. Cities alone do not prove country. The AI receives the accepted profile and explicit feedback, generates queries and exploratory role families, and chooses which verified identities merit full descriptions. The attributed Bun tool supplies LinkedIn search/detail transport; the backend only enforces contracts, deduplication, caches, budgets and safety. Expansion is bounded and new candidates receive a second selection pass. Supplementary research uses only real provider web tools and imports only descriptions whose complete source text is visible in tool telemetry. When that capability is absent, preserve the limitation instead of inventing records.
+Review preserved legacy geography in Preferences, save regional conditions and confirm review before searching. Use Search this country or Search all markets after consent. Every market gets an independent AI plan, constrained country-qualified query locations, regional feedback, evaluations and outcomes under one shared LinkedIn transport/budget/stop latch. Cities alone do not prove country. The AI receives the accepted profile and explicit feedback, generates queries and exploratory role families, and chooses which verified identities merit full descriptions. The attributed Bun tool supplies LinkedIn search/detail transport; the backend only enforces contracts, deduplication, caches, budgets and safety. Expansion is bounded and new candidates receive a second selection pass. Supplementary AI research locates URLs; controlled read-only retrieval supplies the actual source text and identity evidence. Tool activity or model-written descriptions alone never authorize import.
+
+## Description recovery
+
+Find full description acts on a retained identity; Complete missing descriptions
+handles up to 10 missing vacancies with bounded LinkedIn/public retrieval budgets.
+Prefer stored/cache text. AI locates public official URLs using public job facts only;
+the controlled HTTPS worker fetches actual text/JSON-LD or documented Greenhouse,
+Lever/Ashby API content. Exact employer/title/locality/explicit country and any known
+requisition must match; ambiguous matches are retained as unverified. Original ID/URL,
+Like, Save and events remain; retrieval URL/hash/timestamp are separate. Persist source
+stops and never substitute routes after denial. User-supplied text stays labeled.
+Reports distinguish attempted/recovered/unavailable/blocked/evaluated/remaining.
 
 ## ATS and HR
 

@@ -32,6 +32,7 @@ EVALUATION = obj({
     'hr': obj({'assessment': string(), 'strengths': array(string(1000)), 'gaps': array(string(1000)), 'interview_risks': array(string(1000))}),
 })
 SCHEMAS = {
+    'resolve': obj({'sources': array(obj({'url': string(2000), 'employer_url': string(2000)}), 2), 'limitations': array(string(1000))}),
     'profile': obj({'summary': string(), 'strengths': array(string(1000)), 'evidence': array(string(1500)), 'gaps': array(string(1000)), 'questions': array(string(500), 3)}),
     'plan': obj({'strategy': string(), 'role_families': array(string(500), 10), 'queries': array(QUERY, 8), 'supplementary_research': {'type': 'boolean'}, 'research_queries': array(string(300), 3)}),
     'triage': obj({'detail_ids': array(string(250), 20), 'rationale': string(), 'expand_queries': array(QUERY, 2)}),

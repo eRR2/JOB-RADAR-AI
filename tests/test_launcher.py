@@ -30,4 +30,4 @@ class LauncherTests(unittest.TestCase):
                 main()
             hunter.cancel.set.assert_called_once()
             self.assertEqual(hunter.thread.join.call_count,2)
-            self.assertEqual(order,['cancel','unlock'])
+            self.assertEqual(order,['cancel','unlock','unlock'])  # Database and updater locks released after cancellation.
