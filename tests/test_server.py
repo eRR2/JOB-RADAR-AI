@@ -4,12 +4,33 @@ import threading
 import unittest
 import urllib.request
 import urllib.error
+from unittest.mock import patch
 from pathlib import Path
 from job_radar_ai.server import make_server
 from job_radar_ai.contracts import WEIGHTS
 
 
 class HTTPTests(unittest.TestCase):
+    def test_scoped_feedback_and_market_search_use_guarded_endpoints(self):
+        from job_radar_ai.markets import defaults
+        self.server.app.store.set('profile',{'provider':'codex','markets':defaults()})
+        for country in ('Germany','Netherlands'):
+            self.server.app.store.upsert_job({'id':country,'location':country})
+        token=json.load(self.request('/api/state'))['csrf']
+        headers={'X-Radar-CSRF':token,'Origin':self.url}
+        self.request('/api/feedback',{'job_id':'Netherlands','kind':'like'},headers).close()
+        self.assertEqual(self.server.app.store.preference_revision(market_id='DE'),0)
+        self.assertEqual(self.server.app.store.preference_revision(market_id='NL'),1)
+        with self.assertRaises(urllib.error.HTTPError):
+            self.request('/api/feedback',{'job_id':'Netherlands','kind':'like','scope':'DE'},headers)
+        self.request('/api/feedback',{'job_id':'Netherlands','kind':'like','scope':'global'},headers).close()
+        self.assertEqual(self.server.app.store.preference_revision(),1)
+        with patch.object(self.server.app.hunter,'start',return_value=42) as start:
+            self.request('/api/search',{'market_id':'DE'},headers).close()
+            start.assert_called_once_with('DE')
+        for path,data in [('/api/feedback',{'job_id':'Netherlands','kind':'like','scope':'global'}),('/api/migration-review',{'confirm':'REVIEWED LEGACY GEOGRAPHY'})]:
+            with self.assertRaises(urllib.error.HTTPError) as error:self.request(path,data,{'Origin':'https://evil.invalid'})
+            self.assertEqual(error.exception.code,403)
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.server = make_server(Path.cwd(), Path(self.temp.name)/'state.sqlite3', 0)

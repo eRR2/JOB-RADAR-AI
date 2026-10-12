@@ -51,12 +51,12 @@ class PersistenceTests(unittest.TestCase):
         self.assertIsNone(self.store.start_run('codex'))
         self.assertEqual(self.store.runs()[0]['status'], 'skipped')
 
-    def test_changed_description_invalidates_old_assessment(self):
+    def test_changed_description_retains_prior_assessment_until_replacement(self):
         job={'id':'linkedin:123456','title':'Synthetic','description':'Original responsibilities'}
         self.store.upsert_job(job)
         self.store.evaluate(job['id'],{'recommend':True,'summary':'Original analysis'})
         self.store.upsert_job({**job,'description':'Changed responsibilities'})
-        self.assertIsNone(self.store.jobs()[0]['evaluation'])
+        self.assertEqual(self.store.jobs()[0]['evaluation']['summary'],'Original analysis')
 
     def test_search_only_rediscovery_preserves_closed_banner_evidence(self):
         self.store.upsert_job({'id':'linkedin:123456','title':'Synthetic','description':'Original responsibilities',

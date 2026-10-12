@@ -15,6 +15,7 @@ from .hunter import Hunter, DEFAULT_BUDGETS, profile_signature
 from .profile import validate_profile
 from .providers import Provider, bounded_process, executable
 from .schedule import install_task, due_slot, catchup_slot
+from .markets import market_profile, country_of, REGIONAL
 
 CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 
@@ -44,12 +45,20 @@ class Application:
     def state(self):
         profile = self.store.get('profile')
         jobs = self.store.jobs()
+        markets=(profile or {}).get('markets',[])
         for job in jobs:
-            job['assessment_stale'] = bool(job['evaluation'] and job['evaluation'].get('profile_signature')!=profile_signature({**(profile or {}),'_preference_revision':self.store.preference_revision()}))
+            job['country_id']=country_of(job,markets)
+            job['country_status']='country stated in source' if job['country_id'] else 'country unverified'
+            for key,item in job['market_evaluations'].items():
+                market=next((m for m in markets if m['id']==key),None)
+                item['assessment_stale']=bool(item['content_stale'] or not market or item['evaluation'].get('profile_signature')!=profile_signature(market_profile(profile,market,self.store)))
+            job['assessment_stale'] = bool(job['evaluation'] and (markets or job['evaluation'].get('profile_signature')!=profile_signature({**(profile or {}),'_preference_revision':self.store.preference_revision()})))
+        market_state={m['id']:{'learned':self.store.get('learned:'+m['id'],[]),'learning_explanation':self.store.get('learning_explanation:'+m['id'],''), 'revision':self.store.preference_revision(market_id=m['id'])} for m in markets}
         return {'csrf': self.csrf, 'profile': profile, 'jobs': jobs, 'runs': self.store.runs(),
                 'providers': self.providers(), 'cv': {'text':self.store.get('cv_text',''), 'filename':self.store.get('cv_filename')},
                 'proposed_profile': self.store.get('proposed_profile'), 'learned': self.store.get('learned', []),
                 'learning_explanation':self.store.get('learning_explanation',''), 'learning_paused':self.store.get('learning_paused',False),
+                'market_state':market_state, 'global_learned':self.store.get('learned:global',[]),
                 'budgets':self.store.get('budgets',DEFAULT_BUDGETS), 'linkedin_stop':self.store.get('linkedin_stop'),
                 'linkedin_pending':self.store.get('linkedin_pending',False), 'linkedin_last_success':self.store.get('linkedin_last_success'),
                 'operation':self.operation, 'native_task':self.store.get('native_task'), 'timezone':datetime.now().astimezone().tzname(),
@@ -218,6 +227,10 @@ def make_server(root, database, port=8767, skill_mode=False):
                 profile['cv_text'] = app.store.get('cv_text','')
                 profile['interpreted'] = (app.store.get('profile') or {}).get('interpreted')
                 prior=app.store.get('profile') or {}
+                if 'weights' in prior and 'weights' not in profile:
+                    profile['weights']=prior['weights']
+                if prior.get('market_migration'):
+                    profile['market_migration']=prior['market_migration']
                 app.store.set('profile',profile)
                 if any(prior.get(key)!=profile.get(key) for key in ('frequency','time','weekday')):
                     app.store.set('schedule_slot',None)
@@ -261,7 +274,8 @@ def make_server(root, database, port=8767, skill_mode=False):
                     raise ValueError('Save your profile, upload readable CV and confirm provider processing first.')
                 def analyze(cancel):
                     provider = Provider(profile['provider'],app.root/'.private/ai')
-                    result = provider.run('profile','Interpret actual CV evidence and career goals. Propose an initial professional profile, transferable strengths and at most three necessary follow-up questions. Never infer unproven qualifications.',profile,cancel=cancel)
+                    core={k:v for k,v in profile.items() if k not in (*REGIONAL,'weights','markets','market_migration')}
+                    result = provider.run('profile','Interpret actual CV evidence and global career goals. Regional conditions are assessed independently during each market search. Propose an initial professional profile, transferable strengths and at most three necessary follow-up questions. Never infer unproven qualifications.',core,cancel=cancel)
                     app.store.set('proposed_profile',result)
                     app.store.set('provider_verified:'+profile['provider'],{'at':now(),'inference':True})
                 app.async_operation('profile',analyze)
@@ -292,7 +306,7 @@ def make_server(root, database, port=8767, skill_mode=False):
             if path == '/api/search':
                 if app.operation and app.operation['status']=='running':
                     raise ValueError('Wait for or cancel the profile/provider operation first.')
-                run_id = app.hunter.start()
+                run_id = app.hunter.start(data.get('market_id','all'))
                 if app.skill_mode and run_id is not None:
                     slot = catchup_slot(app.store.get('profile'))
                     app.store.set('schedule_slot', slot)
@@ -304,29 +318,42 @@ def make_server(root, database, port=8767, skill_mode=False):
             if path == '/api/reevaluate':
                 if app.operation and app.operation['status']=='running':
                     raise ValueError('Wait for the current AI operation first.')
-                return {'run_id':app.hunter.review(data['job_id'])}
+                return {'run_id':app.hunter.review(data['job_id'],data.get('market_id'))}
             if path == '/api/application':
                 app.store.application(data['job_id'],data['status'])
                 return {'saved':True}
             if path == '/api/feedback':
-                app.store.add_feedback(data['job_id'],data['kind'],data.get('reasons',[]),data.get('note',''))
-                app.store.preference_revision(bump=True)
+                app.store.add_feedback(data['job_id'],data['kind'],data.get('reasons',[]),data.get('note',''),scope=data.get('scope'))
                 return {'saved':True}
             if path == '/api/learned':
                 preferences = data.get('preferences')
                 if not isinstance(preferences,list) or len(preferences)>20 or any(not isinstance(p,str) or len(p)>1000 for p in preferences):
                     raise ValueError('Invalid learned preferences.')
-                app.store.set('learned',[{'text':p,'confidence':'explicit','feedback_ids':[]} for p in preferences if p.strip()])
+                scope=data.get('scope','global')
+                if scope!='global' and scope not in {m['id'] for m in (app.store.get('profile') or {}).get('markets',[])}:
+                    raise ValueError('Unknown learning scope.')
+                app.store.set('learned:'+scope,[{'text':p,'confidence':'explicit','feedback_ids':[]} for p in preferences if p.strip()])
                 app.store.set('learning_paused',bool(data.get('paused',True)))
-                app.store.preference_revision(bump=True)
+                app.store.preference_revision(bump=True,market_id=None if scope=='global' else scope)
                 return {'saved':True}
             if path == '/api/learning-reset':
                 if data.get('confirm') != 'RESET LEARNING':
                     raise ValueError('Confirm reset explicitly.')
                 app.store.set('learned',[])
+                for scope in ['global']+[m['id'] for m in (app.store.get('profile') or {}).get('markets',[])]:
+                    app.store.set('learned:'+scope,[])
                 app.store.set('learning_explanation','Reset by user. Past explicit feedback is retained; automatic learning is paused.')
                 app.store.set('learning_paused',True)
                 app.store.preference_revision(bump=True)
+                return {'saved':True}
+            if path == '/api/migration-review':
+                if search_active or operation_active:
+                    raise ValueError('Wait for active AI operations first.')
+                profile=app.store.get('profile')
+                if not profile or data.get('confirm')!='REVIEWED LEGACY GEOGRAPHY':
+                    raise ValueError('Review and save regional conditions before confirming.')
+                profile.setdefault('market_migration',{})['review_required']=False
+                app.store.set('profile',profile)
                 return {'saved':True}
             if path == '/api/budgets':
                 limits = {'searches':(1,6),'pages':(1,2),'details':(1,8),'requests':(1,16),'spacing':(5,60)}
@@ -363,7 +390,7 @@ def make_server(root, database, port=8767, skill_mode=False):
                 if data.get('confirm')!='DELETE LOCAL CAREER DATA':
                     raise ValueError('Explicit data deletion confirmation required.')
                 app.store.erase()
-                for relative,pattern in [('.private/cv','*'),('.private/backups','radar-*.sqlite3')]:
+                for relative,pattern in [('.private/cv','*'),('.private/backups','radar-*.sqlite3'),('.private/backups','migration-*.sqlite3')]:
                     folder=(app.root/relative).resolve()
                     if folder.is_relative_to(app.root/'.private') and folder.is_dir():
                         for file in folder.glob(pattern):

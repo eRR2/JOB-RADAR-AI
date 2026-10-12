@@ -7,6 +7,7 @@ from xml.etree import ElementTree
 from pypdf import PdfReader
 from .contracts import WEIGHTS
 from .store import normalize_weights
+from .markets import validate_markets, defaults
 
 TEXT_FIELDS = ['objectives', 'seniority', 'leadership', 'industries', 'strengths', 'city', 'region', 'commute',
                'relocation', 'workplace', 'salary', 'hours', 'unwanted', 'hard_requirements', 'followup_answers']
@@ -53,7 +54,7 @@ def parse_cv(filename, data):
 def validate_profile(value):
     if not isinstance(value, dict):
         raise ValueError('Invalid profile.')
-    allowed = set(TEXT_FIELDS) | {'provider', 'weights', 'consent', 'linkedin_consent', 'secondary', 'frequency', 'weekday', 'time'}
+    allowed = set(TEXT_FIELDS) | {'provider', 'weights', 'markets', 'consent', 'linkedin_consent', 'secondary', 'frequency', 'weekday', 'time'}
     if set(value) - allowed:
         raise ValueError('Unknown profile fields.')
     result = {}
@@ -71,9 +72,13 @@ def validate_profile(value):
         if type(value.get(key, False)) is not bool:
             raise ValueError('Consent flags must be boolean.')
         result[key] = value.get(key, False)
-    if not isinstance(value.get('weights'), dict) or set(value['weights']) != set(WEIGHTS):
-        raise ValueError('Set all seven preference weights.')
-    result['weights'] = normalize_weights(value['weights'])
+    # Old clients may send weights; retain them only as historical data.
+    if 'weights' in value:
+        if not isinstance(value['weights'], dict) or set(value['weights']) != set(WEIGHTS):
+            raise ValueError('Invalid legacy weights.')
+        result['weights'] = normalize_weights(value['weights'])
+    result['markets'] = validate_markets(value.get('markets', defaults()))
+    result['assessment_policy'] = 'evidence-v2'
     if value.get('frequency') not in ('manual', 'daily', 'weekly') or type(value.get('weekday')) is not int or not 0 <= value['weekday'] <= 6 or not re.fullmatch(r'(?:[01]\d|2[0-3]):[0-5]\d', str(value.get('time'))):
         raise ValueError('Invalid local search schedule.')
     result.update({k: value[k] for k in ('frequency', 'weekday', 'time')})

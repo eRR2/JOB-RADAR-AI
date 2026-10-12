@@ -19,8 +19,9 @@ class HunterTests(unittest.TestCase):
     def test_unknown_salary_is_unscored_and_does_not_reject(self):
         result = prepare_evaluation(assessment(), {'id': 'linkedin:123456', 'description': 'Lead systems team'}, {'cv_text': 'Led a systems team', 'weights': {k: 1 for k in WEIGHTS}, 'hard_requirements': ''})
         self.assertTrue(result['recommend'])
-        self.assertAlmostEqual(result['weighted_score'], 80)
-        self.assertEqual(result['scored_weight'], 85.7)
+        self.assertIsNone(result['scores']['salary'])
+        self.assertNotIn('weighted_score',result)
+        self.assertEqual(result['assessment_version'],2)
 
     def test_fabricated_job_and_cv_quotes_are_refused(self):
         with self.assertRaises(ValueError):

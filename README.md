@@ -23,8 +23,9 @@ no OS scheduler and does not search automatically while closed. **Close workspac
 stops the server; invoking the skill reopens the same private history. The calling
 chat and dashboard inference are separate supported CLI sessions.
 
-See [V2 architecture, bootstrap limits and evidence](docs/V2_PHASE1.md). V2 is an
-unreleased local feature branch: copying a standalone skill folder still requires
+See [Phase 2 markets, migration and verification](docs/V2_PHASE2.md) and
+[Phase 1 architecture and bootstrap limits](docs/V2_PHASE1.md). V2 is an
+unreleased feature branch: copying a standalone skill folder still requires
 the application checkout. Clean-machine universal zero-install support is not
 claimed. The original V1 entrypoints below and Git history remain recoverable.
 
@@ -43,14 +44,14 @@ You do not need Git, JSON editing, Docker, LinkedIn login, Outlook, job alerts o
 
 | Screen | What you can do |
 | --- | --- |
-| Discover | Search with AI, see actual progress/source status, switch Recommended / All jobs / New discoveries, filter/sort, inspect original descriptions and missing information, read separate ATS and HR assessments, give feedback or reassess stored descriptions. |
+| Discover | Germany / Netherlands / All / Country unverified; search countries independently, switch Recommended / All jobs / New discoveries, inspect evidence, separate ATS/HR, feedback and reassessment. |
 | Applications | Saved / Ongoing / History; change Save, Applied, Interview, Offer, Rejected or Dismissed status with dated event history. Rediscovery keeps the same identity and history. |
-| Reports | Read latest and historical AI analysis, actual new/seen counts, descriptions, evaluations, queries, requests, cache hits and inaccessible sources. |
-| Preferences | Replace CV, edit career profile, seven weights and hard requirements, review/edit/pause/reset learned preferences, select AI, set frequency, review source stops, export/backup/delete private data. |
+| Reports | Independent market strategies/outcomes, discovered/new/seen counts, descriptions, evaluations, recommendations, pending reassessment and source limitations under one run. |
+| Preferences | Edit natural-language global objectives/preferences and regional conditions/languages/locations, add countries, review legacy geography and scoped learning, set frequency, review source stops, export/backup/delete private data. |
 
 No demo vacancies appear in the production dashboard. Every observed job remains in **All jobs**, even when low-ranked or missing a description. Applied/rejected/dismissed identities are excluded from recommendations without suppressing the employer or industry. Application outcomes are independent of feedback and never train negative preferences.
 
-The seven preference weights normalize to 100%. The displayed career-fit score is a weighted combination of **AI-assessed known dimensions**, with the percentage of weight evidenced shown alongside it. Unknown salary/work arrangements are unscored; they do not cause rejection. This is neither an employer ATS score nor a success probability. Each user hard requirement occupies its own line and must be assessed unchanged; a quoted confirmed violation prevents recommendation. Profile or explicit-feedback changes mark old assessments stale until reassessed.
+There are no preference sliders or mandatory weights. AI interprets natural-language objectives, conditions, CV evidence and scoped feedback. New assessments have no weighted total; historical scores remain labeled legacy. Unknown facts require verification, not automatic rejection. Each hard requirement is assessed unchanged; a quoted confirmed violation prevents recommendation. Previously recommended jobs remain visible as **Reassessment pending** until a validated replacement. Like teaches AI and Save tracks an application independently. Regional feedback affects its country; **Apply to all markets** explicitly makes it global.
 
 CV parsing supports unencrypted text PDFs up to 50 pages or DOCX, up to 10 MB. Scanned PDFs require separate OCR. Extracted text is previewed; common email addresses, phone numbers and URLs are removed, but names and other personal details may remain. AI interpretation and CV suggestions can be wrong: inspect the quotes, actual responsibilities, missing facts and proposed edits.
 
@@ -60,7 +61,7 @@ LinkedIn transport is the actual [MadsLorentzen/ai-job-search LinkedIn skill](ht
 
 Guest endpoints are unsupported and automated use can conflict with LinkedIn terms. No credentials/cookies, login, proxies, stealth or bypass are used. Coverage is limited; an observed listing or absence of a closed banner **does not prove OPEN**. Missing search results and source failure do not close a vacancy.
 
-Defaults are 3 dynamically chosen searches, one page per query, 5 selected descriptions, and at most 8 network requests with at least 5 seconds spacing persisted across runs. Preferences exposes bounded changes. Successful searches cache for 2 hours, descriptions for 24 hours; cache reads do not extend freshness. No automatic retries are made. Restrictions, CAPTCHA/auth walls, redirects and unknown request extent after timeout/interruption persist a stop. Review the source stop explicitly; resetting it is not permission to bypass or retry access denial.
+Defaults are 3 dynamically chosen searches, one page per query, 5 selected descriptions, and at most 8 network requests with at least 5 seconds spacing persisted across runs. Preferences exposes bounded changes. Successful searches cache for 2 hours, descriptions for 24 hours; cache reads do not extend freshness. No automatic retries are made. Restrictions, CAPTCHA/auth walls, redirects and unknown request extent after timeout/interruption persist a stop. Review the source stop explicitly; resetting it is not permission to bypass or retry access denial. Search all splits these caps fairly between countries using one shared transport; it never multiplies the global LinkedIn request budget.
 
 Supplementary official-careers/ATS research is optional and uses the chosen provider's real web tools. **V1 currently cannot verify full fetched-page text through the adapters' available CLI output.** Codex can expose actual web actions/URLs, while Claude's JSON result lacks a full tool trace. These are insufficient to validate an entire description, so supplementary vacancies are **not imported** and a visible limitation is reported when research runs. Search/model prose never proves retrieval. LinkedIn full-description analysis works independently. No custom secondary scraper or paid search API is introduced.
 

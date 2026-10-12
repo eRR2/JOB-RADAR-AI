@@ -6,6 +6,15 @@ from job_radar_ai.contracts import WEIGHTS
 
 
 class ProfileTests(unittest.TestCase):
+    def test_new_profiles_need_no_weights_and_markets_are_validated(self):
+        value={'provider':'codex','objectives':'Lead teams','frequency':'manual','time':'09:00','weekday':0}
+        result=validate_profile(value)
+        self.assertNotIn('weights',result)
+        self.assertEqual([m['id'] for m in result['markets']],['DE','NL'])
+        with self.assertRaises(ValueError):
+            validate_profile({**value,'markets':[{'id':'DE'}]})
+        duplicate=[dict(result['markets'][0]),dict(result['markets'][0])]
+        with self.assertRaises(ValueError):validate_profile({**value,'markets':duplicate})
     def test_text_pdf_extracts_actual_synthetic_content(self):
         stream=b'BT /F1 12 Tf 30 100 Td (Led a synthetic systems engineering team.) Tj ET'
         objects=[b'<< /Type /Catalog /Pages 2 0 R >>',b'<< /Type /Pages /Kids [3 0 R] /Count 1 >>',

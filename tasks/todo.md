@@ -23,3 +23,13 @@
 - [ ] Browser visual/click/accessibility QA — no browser surface available in this session; source inspection and HTTP/JavaScript checks do not satisfy this item.
 - [ ] Claude live execution and secondary full-page evidence — unavailable CLI/telemetry; safe visible boundaries implemented.
 - [x] Privacy and publication — 63 indexed source files plus Git history and eight ignore probes passed; human source/prose review completed; new public MIT repository created and main pushed, remote commit verified. Older JOB-RADAR remains unchanged.
+
+## V2 Phase 2
+
+- [x] Configurable independent country strategies, conditions, feedback, learning, revisions and assessments; global identities/application history and bounded source access.
+- [x] Remove seven sliders and mandatory weights; preserve labeled historical scores.
+- [x] Retain pending recommendations, persisted Like, independent Save, backdrop dismissal and distinct warning/report counts.
+- [x] Verified pre-migration SQLite/CV backup; additive preservation of 26 existing jobs and all history/source restrictions; explicit ambiguity review.
+- [x] Synthetic regression and actual subscription Codex verification with zero live source requests; staged privacy/history checks before feature-branch publication.
+- [ ] Actual browser visual/click/accessibility QA and clean Windows VM; no connected browser surface in this session.
+- [ ] Upstream optional Bun development-dependency advisory audit; repository has no Bun lockfile. No runtime dependencies were added.

@@ -2,9 +2,11 @@
 import json
 import math
 import sqlite3
-from contextlib import contextmanager
+import secrets
+from contextlib import contextmanager, closing
 from datetime import datetime, timezone
 from pathlib import Path
+from .markets import country_of, migrated_profile, defaults
 
 
 def now():
@@ -28,8 +30,21 @@ class Store:
             if db.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
                 raise RuntimeError('Established database failed integrity check. Restore a backup explicitly.')
             version = db.execute('PRAGMA user_version').fetchone()[0]
-            if version not in (0, 1):
+            if version not in (0, 1, 2):
                 raise RuntimeError('Unsupported database version; do not replace it.')
+            if version == 1:
+                # SQLite backup is consistent even in WAL mode. Fail closed before DDL.
+                folder = self.path.parent/'backups'
+                folder.mkdir(exist_ok=True)
+                destination = folder/('migration-'+secrets.token_hex(6)+'.sqlite3')
+                with closing(sqlite3.connect(destination)) as backup:
+                    db.backup(backup)
+                    if backup.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+                        raise RuntimeError('Migration backup verification failed.')
+                    for table in ('settings','jobs','feedback','application_events','runs','observations','cache'):
+                        original = [tuple(r) for r in db.execute('SELECT * FROM '+table+' ORDER BY rowid')]
+                        if original != backup.execute('SELECT * FROM '+table+' ORDER BY rowid').fetchall():
+                            raise RuntimeError('Migration backup differs; database unchanged.')
             db.executescript('''
                 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY, payload TEXT NOT NULL,
@@ -45,8 +60,26 @@ class Store:
                 CREATE TABLE IF NOT EXISTS observations(run_id INTEGER NOT NULL REFERENCES runs(id),
                     job_id TEXT NOT NULL REFERENCES jobs(id), is_new INTEGER NOT NULL, PRIMARY KEY(run_id,job_id));
                 CREATE TABLE IF NOT EXISTS cache(key TEXT PRIMARY KEY, at TEXT NOT NULL, payload TEXT NOT NULL);
-                PRAGMA user_version=1;
             ''')
+            db.execute('BEGIN IMMEDIATE')
+            db.execute('CREATE TABLE IF NOT EXISTS job_markets(job_id TEXT NOT NULL REFERENCES jobs(id), market_id TEXT NOT NULL, PRIMARY KEY(job_id,market_id))')
+            db.execute('CREATE TABLE IF NOT EXISTS market_evaluations(job_id TEXT NOT NULL REFERENCES jobs(id), market_id TEXT NOT NULL, evaluation TEXT NOT NULL, content_stale INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(job_id,market_id))')
+            db.execute('CREATE TABLE IF NOT EXISTS feedback_scopes(feedback_id INTEGER PRIMARY KEY REFERENCES feedback(id), scope TEXT NOT NULL)')
+            if version == 1:
+                row = db.execute("SELECT value FROM settings WHERE key='profile'").fetchone()
+                profile = json.loads(row[0]) if row else {}
+                profile = profile if profile.get('markets') else migrated_profile(profile)
+                if row:
+                    db.execute("UPDATE settings SET value=? WHERE key='profile'", (json.dumps(profile),))
+                markets = profile.get('markets', defaults())
+                for job in db.execute('SELECT id,payload,evaluation FROM jobs').fetchall():
+                    country = country_of(json.loads(job['payload']), markets)
+                    if country:
+                        db.execute('INSERT OR IGNORE INTO job_markets VALUES (?,?)', (job['id'],country))
+                    if job['evaluation']:
+                        db.execute('INSERT OR IGNORE INTO market_evaluations VALUES (?,?,?,1)', (job['id'],country or 'unclassified',job['evaluation']))
+                    db.execute('INSERT OR IGNORE INTO feedback_scopes SELECT id,? FROM feedback WHERE job_id=?', (country or 'unclassified',job['id']))
+            db.execute('PRAGMA user_version=2')
 
     @contextmanager
     def db(self):
@@ -68,7 +101,7 @@ class Store:
         with self.db() as db:
             db.execute('INSERT INTO settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', (key, json.dumps(value)))
 
-    def upsert_job(self, job, run_id=None):
+    def upsert_job(self, job, run_id=None, market_id=None):
         timestamp = now()
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -85,7 +118,9 @@ class Store:
                 ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,last_seen=excluded.last_seen''',
                 (job['id'], json.dumps(merged), timestamp, timestamp))
             if changed:
-                db.execute('UPDATE jobs SET evaluation=NULL WHERE id=?',(job['id'],))
+                db.execute('UPDATE market_evaluations SET content_stale=1 WHERE job_id=?',(job['id'],))
+            if market_id:
+                db.execute('INSERT OR IGNORE INTO job_markets VALUES (?,?)',(job['id'],market_id))
             if run_id:
                 db.execute('INSERT OR IGNORE INTO observations VALUES (?,?,?)', (run_id, job['id'], int(old is None)))
         return old is None
@@ -95,18 +130,26 @@ class Store:
             rows = db.execute('SELECT * FROM jobs ORDER BY first_seen DESC,id').fetchall()
             events = db.execute('SELECT job_id,status,at FROM application_events ORDER BY id').fetchall()
             feedback = db.execute('SELECT * FROM feedback ORDER BY id').fetchall()
+            scopes = dict(db.execute('SELECT feedback_id,scope FROM feedback_scopes').fetchall())
+            market_rows = db.execute('SELECT * FROM market_evaluations').fetchall()
+            memberships = db.execute('SELECT * FROM job_markets').fetchall()
         result = []
         for row in rows:
             job = json.loads(row['payload'])
             job.update({k: row[k] for k in ('first_seen', 'last_seen', 'application_status')})
             job['evaluation'] = json.loads(row['evaluation']) if row['evaluation'] else None
             job['events'] = [dict(e) for e in events if e['job_id'] == row['id']]
-            job['feedback'] = [{**dict(f), 'reasons': json.loads(f['reasons'])} for f in feedback if f['job_id'] == row['id']]
+            job['feedback'] = [{**dict(f), 'scope':scopes.get(f['id'],'unclassified'), 'reasons': json.loads(f['reasons'])} for f in feedback if f['job_id'] == row['id']]
+            job['market_ids'] = [m['market_id'] for m in memberships if m['job_id']==row['id']]
+            job['market_evaluations'] = {m['market_id']:{'evaluation':json.loads(m['evaluation']),'content_stale':bool(m['content_stale'])} for m in market_rows if m['job_id']==row['id']}
             result.append(job)
         return result
 
-    def evaluate(self, job_id, evaluation):
+    def evaluate(self, job_id, evaluation, market_id=None):
         with self.db() as db:
+            if market_id:
+                db.execute('INSERT INTO market_evaluations VALUES (?,?,?,0) ON CONFLICT(job_id,market_id) DO UPDATE SET evaluation=excluded.evaluation,content_stale=0', (job_id,market_id,json.dumps(evaluation)))
+                return
             if db.execute('UPDATE jobs SET evaluation=? WHERE id=?', (json.dumps(evaluation), job_id)).rowcount != 1:
                 raise ValueError('Unknown job identity.')
 
@@ -122,17 +165,27 @@ class Store:
                 db.execute('UPDATE jobs SET application_status=? WHERE id=?', (status, job_id))
                 db.execute('INSERT INTO application_events(job_id,status,at) VALUES (?,?,?)', (job_id, status, now()))
 
-    def add_feedback(self, job_id, kind, reasons, note):
+    def add_feedback(self, job_id, kind, reasons, note, scope=None):
         if kind not in ('like', 'dislike', 'irrelevant') or not isinstance(reasons, list) or len(reasons) > 10 or any(not isinstance(r, str) or len(r) > 100 for r in reasons) or not isinstance(note, str) or len(note) > 1000:
             raise ValueError('Invalid feedback.')
         with self.db() as db:
-            if not db.execute('SELECT 1 FROM jobs WHERE id=?', (job_id,)).fetchone():
+            row=db.execute('SELECT payload FROM jobs WHERE id=?', (job_id,)).fetchone()
+            if not row:
                 raise ValueError('Unknown job identity.')
-            db.execute('INSERT INTO feedback(job_id,kind,reasons,note,at) VALUES (?,?,?,?,?)', (job_id, kind, json.dumps(reasons), note, now()))
+            profile_row=db.execute("SELECT value FROM settings WHERE key='profile'").fetchone()
+            markets=(json.loads(profile_row[0]) if profile_row else {}).get('markets',defaults())
+            country=country_of(json.loads(row[0]),markets)
+            scope = scope or country or 'unclassified'
+            if scope not in ('global','unclassified') and scope != country:
+                raise ValueError('Regional feedback must match the verified listing country. Use global explicitly for all markets.')
+            cursor=db.execute('INSERT INTO feedback(job_id,kind,reasons,note,at) VALUES (?,?,?,?,?)', (job_id, kind, json.dumps(reasons), note, now()))
+            db.execute('INSERT INTO feedback_scopes VALUES (?,?)',(cursor.lastrowid,scope))
+            key='preference_revision' if scope=='global' else 'preference_revision:'+scope
+            db.execute('INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=CAST(CAST(value AS INTEGER)+1 AS TEXT)',(key,'1'))
 
-    def feedback(self):
+    def feedback(self, market_id=None):
         with self.db() as db:
-            rows = db.execute('SELECT f.*,j.payload FROM feedback f JOIN jobs j ON j.id=f.job_id ORDER BY f.id DESC LIMIT 100').fetchall()
+            rows = db.execute("SELECT f.*,j.payload,COALESCE(s.scope,'unclassified') AS scope FROM feedback f JOIN jobs j ON j.id=f.job_id LEFT JOIN feedback_scopes s ON s.feedback_id=f.id WHERE ? IS NULL OR s.scope IN (?, 'global') ORDER BY f.id DESC LIMIT 100",(market_id,market_id)).fetchall()
         return [{**dict(r), 'reasons': json.loads(r['reasons']), 'job': json.loads(r['payload']), 'payload': None} for r in rows]
 
     def start_run(self, provider):
@@ -148,11 +201,12 @@ class Store:
         with self.db() as db:
             db.execute("INSERT INTO runs(provider,status,started,finished,stage) VALUES ('local','skipped',?,?,?)",(now(),now(),reason))
 
-    def preference_revision(self, bump=False):
+    def preference_revision(self, bump=False, market_id=None):
+        key='preference_revision'+(':'+market_id if market_id else '')
         with self.db() as db:
             if bump:
-                db.execute("INSERT INTO settings(key,value) VALUES ('preference_revision','1') ON CONFLICT(key) DO UPDATE SET value=CAST(CAST(value AS INTEGER)+1 AS TEXT)")
-            row=db.execute("SELECT value FROM settings WHERE key='preference_revision'").fetchone()
+                db.execute('INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=CAST(CAST(value AS INTEGER)+1 AS TEXT)',(key,'1'))
+            row=db.execute('SELECT value FROM settings WHERE key=?',(key,)).fetchone()
         return int(row[0]) if row else 0
 
     def update_run(self, run_id, stage, payload=None, status=None):
@@ -187,7 +241,10 @@ class Store:
             db.execute('INSERT INTO cache VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET at=excluded.at,payload=excluded.payload', (key, now(), json.dumps(value)))
 
     def export(self):
-        return {'profile': self.get('profile'), 'learned': self.get('learned', []), 'jobs': self.jobs(), 'feedback': self.feedback(), 'runs': self.runs()}
+        profile=self.get('profile')
+        return {'profile':profile, 'learned':self.get('learned', []), 'global_learned':self.get('learned:global',[]),
+                'market_learning':{m['id']:self.get('learned:'+m['id'],[]) for m in (profile or {}).get('markets',[])},
+                'jobs':self.jobs(), 'feedback':self.feedback(), 'runs':self.runs()}
 
     def backup(self, destination):
         backup=sqlite3.connect(destination)
@@ -201,7 +258,7 @@ class Store:
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
             db.execute('PRAGMA secure_delete=ON')
-            for table in ('observations', 'feedback', 'application_events', 'jobs', 'runs', 'cache', 'settings'):
+            for table in ('market_evaluations','job_markets','feedback_scopes','observations', 'feedback', 'application_events', 'jobs', 'runs', 'cache', 'settings'):
                 db.execute('DELETE FROM ' + table)
         with self.db() as db:
             db.execute('VACUUM')
