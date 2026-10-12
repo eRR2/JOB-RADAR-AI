@@ -29,6 +29,15 @@ class MarketTests(unittest.TestCase):
             self.store.upsert_job(job, market_id=market['id'])
             self.store.evaluate(job['id'], prepare_evaluation(assessment(job['id']),job,market_profile(self.profile,market,self.store)), market_id=market['id'])
 
+    def test_review_cannot_label_a_verified_listing_as_another_country(self):
+        self.seed()
+        hunter=Hunter(self.root,self.store)
+        with patch('job_radar_ai.hunter.threading.Thread.start'), self.assertRaisesRegex(ValueError,'verified listing country'):
+            hunter.review('linkedin:NL','DE')
+        self.assertEqual(self.store.runs(),[])
+        job=next(j for j in self.store.jobs() if j['id']=='linkedin:NL')
+        self.assertNotIn('DE',job['market_evaluations'])
+
     def test_local_like_preserves_recommendations_and_only_stales_its_market(self):
         self.seed()
         self.store.add_feedback('linkedin:NL','like',[], '')

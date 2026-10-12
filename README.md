@@ -4,7 +4,23 @@ Your own AI subscription, a local career workspace, and opportunities judged by 
 
 JOB-RADAR AI is a single-user Windows-first browser application. Codex or Claude Code interprets your CV, creates search queries and exploratory role families, selects descriptions to investigate, assesses ATS/CV readiness and hiring-manager fit, learns from explicit feedback, and writes career reports. SQLite preserves your discoveries and application history. There is no hosted AI service or additional API-key billing fallback.
 
-## V2 skill launch — Phase 1 feature branch
+## V2 Windows setup with Codex Desktop
+
+For a second user, open Codex Desktop and paste the short Turkish setup message
+in [the first-time installation guide](docs/INSTALL_CODEX_DESKTOP.md). Codex
+prepares a separate local workspace from the public source archive, registers
+the skill and opens the dashboard. No VS Code, Git, manual Python/Bun commands
+or Windows installer is required. The current V2 branch is
+[`feat/v2-phase2-1-release-readiness`](https://github.com/eRR2/JOB-RADAR-AI/tree/feat/v2-phase2-1-release-readiness);
+**main still contains V1**.
+
+Missing runtimes and the optional standalone Codex CLI have separate private,
+consent-gated bootstraps. Codex helps start the official CLI browser login;
+the user signs in with their own account. Desktop sign-in alone is never treated
+as proof of external CLI availability, subscription authentication or inference.
+See [Phase 2.1 verification and limits](docs/V2_PHASE2_1.md).
+
+## V2 skill launch
 
 In this checkout, invoke **`$job-radar-ai`** in Codex. The skill runs the fixed local
 launcher and opens your real default browser automatically. Upload your CV and
@@ -25,9 +41,9 @@ chat and dashboard inference are separate supported CLI sessions.
 
 See [Phase 2 markets, migration and verification](docs/V2_PHASE2.md) and
 [Phase 1 architecture and bootstrap limits](docs/V2_PHASE1.md). V2 is an
-unreleased feature branch: copying a standalone skill folder still requires
-the application checkout. Clean-machine universal zero-install support is not
-claimed. The original V1 entrypoints below and Git history remain recoverable.
+unmerged feature branch: copying a standalone skill folder still requires
+the application checkout. Clean Windows VM and actual Desktop setup remain
+verification limits. The original V1 entrypoints below and Git history remain recoverable.
 
 ## V1 installation — Windows
 
@@ -44,7 +60,7 @@ You do not need Git, JSON editing, Docker, LinkedIn login, Outlook, job alerts o
 
 | Screen | What you can do |
 | --- | --- |
-| Discover | Germany / Netherlands / All / Country unverified; search countries independently, switch Recommended / All jobs / New discoveries, inspect evidence, separate ATS/HR, feedback and reassessment. |
+| Discover | Germany / Netherlands / All; search countries independently, switch Recommended / All jobs / New discoveries, inspect evidence, separate ATS/HR, feedback and reassessment. Location-unverified jobs stay in All jobs. |
 | Applications | Saved / Ongoing / History; change Save, Applied, Interview, Offer, Rejected or Dismissed status with dated event history. Rediscovery keeps the same identity and history. |
 | Reports | Independent market strategies/outcomes, discovered/new/seen counts, descriptions, evaluations, recommendations, pending reassessment and source limitations under one run. |
 | Preferences | Edit natural-language global objectives/preferences and regional conditions/languages/locations, add countries, review legacy geography and scoped learning, set frequency, review source stops, export/backup/delete private data. |
@@ -87,6 +103,10 @@ Use **Create local SQLite backup** for a consistent database copy under `.privat
 The canonical portable package is [skills/job-radar-ai](skills/job-radar-ai/SKILL.md), with one shared workflow reference. Thin repository adapters live at `.agents/skills/job-radar-ai` for Codex and `.claude/skills/job-radar-ai` for Claude Code. Open a session in this repository and invoke **`$job-radar-ai`** in Codex or **`/job-radar-ai`** in Claude Code.
 
 For personal skill installation outside the checkout, copy **the entire canonical `skills/job-radar-ai` folder**, including references, into your platform's personal skills directory (`~/.agents/skills` for Codex; `~/.claude/skills` for Claude Code). Preserve an existing same-name skill and use the platform's documented [Codex](https://developers.openai.com/codex/skills/) / [Claude](https://code.claude.com/docs/en/skills) installation conventions. The application checkout and prerequisites are still needed. Do not copy only a thin repository adapter: its relative link relies on this checkout.
+
+For Codex Desktop setup, the agent uses `scripts/register-skill.ps1` from the
+installed workspace to create a user adapter pointing to its exact canonical
+skill path; existing unrelated/same-name skills are preserved.
 
 Codex repository discovery was actually verified with `skills/list` (enabled). Both adapter frontmatters and shared-package links were validated; Claude discovery/inference could not be live-tested because Claude Code is absent on the verification machine. Existing unrelated personal skills were not modified.
 

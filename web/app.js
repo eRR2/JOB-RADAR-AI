@@ -77,24 +77,25 @@ function runStatus() {
   if (!last || last.status==='completed') return null;
   return el('div',{class:'status-box '+(['failed','canceled'].includes(last.status)?'error':'warning')},el('strong',{},`Latest run: ${last.status}`),el('p',{},last.stage),... (last.payload.warnings||[]).slice(0,3).map(w=>el('p',{},w)));
 }
-function searchButton() { return button(marketTab==='all'?'Search all markets':'Search this country',()=>act('/api/search',{market_id:marketTab},'AI search started.'),'primary',marketTab==='unclassified'||!!latestActive()||state.operation?.status==='running'); }
+function searchButton() { return button(marketTab==='all'?'Search all markets':'Search this country',()=>act('/api/search',{market_id:marketTab},'AI search started.'),'primary',!!latestActive()||state.operation?.status==='running'); }
 function marketTabs() {
   const tabs=el('div',{class:'tabs',role:'group','aria-label':'Country markets'});
-  for(const [id,label] of [...(state.profile?.markets||[]).map(m=>[m.id,m.country]),['all','All'],['unclassified','Country unverified']]) {
+  for(const [id,label] of [...(state.profile?.markets||[]).map(m=>[m.id,m.country]),['all','All']]) {
     const control=button(label,()=>{marketTab=id;shown=40;render();},marketTab===id?'active':'');
     control.setAttribute('aria-pressed',String(marketTab===id));tabs.append(control);
   }
   return tabs;
 }
-function inMarket(job, market=marketTab) { return market==='all' || (market==='unclassified'?!job.country_id:job.country_id===market || (!job.country_id && job.market_ids?.includes(market))); }
+function inMarket(job, market=marketTab) { return market==='all' || job.country_id===market; }
 function marketJob(job, market=marketTab) {
   const configured=(state.profile?.markets||[]).map(m=>m.id);
   const assessments=Object.keys(job.market_evaluations||{});
   const regional=assessments.filter(id=>configured.includes(id));
   const preferred=regional.find(id=>job.market_evaluations[id].evaluation.recommend&&!job.market_evaluations[id].assessment_stale)||regional.find(id=>job.market_evaluations[id].evaluation.recommend)||regional[0];
-  const key=market==='all' || market==='unclassified' ? job.country_id || preferred || assessments[0] : market;
+  const key=job.country_id || (assessments.includes(market)?market:preferred||assessments[0]);
   const item=job.market_evaluations?.[key];
-  return {...job,evaluation:item?.evaluation||job.evaluation,assessment_stale:item?.assessment_stale??job.assessment_stale,assessment_market:key};
+  // A missing country assessment must never borrow another country's or legacy evaluation.
+  return {...job,evaluation:item?.evaluation || (!key?job.evaluation:undefined),assessment_stale:item?.assessment_stale??(!key?job.assessment_stale:false),assessment_market:key};
 }
 function visibleJobs() { return state.jobs.filter(j=>inMarket(j)).map(j=>marketJob(j)); }
 function discoveryCounts(jobs) {
@@ -147,7 +148,7 @@ function jobList(jobs) { return el('div',{},el('div',{class:'job-grid'},jobs.sli
 function card(job) {
   const evaluation=job.evaluation;
   return el('article',{class:'job-card'},el('div',{class:'job-top'},el('div',{class:'company-mark','aria-hidden':'true'},(job.company||'?').slice(0,2).toUpperCase()),el('div',{},el('h3',{},job.title),el('div',{class:'company-line'},[job.company||'Employer not verified',job.location||'Location unknown'].join(' · ')))),
-    el('div',{class:'job-tags'},tag(job.assessment_stale?'Reassessment pending':evaluation?.category.replaceAll('_',' ')||'Awaiting full evaluation',recommended(job)?'green':''),tag(job.country_id||'Country unverified'),job.assessment_market?tag('Assessment: '+job.assessment_market):null,evaluation && evaluation.assessment_version!==2?tag('Legacy assessment','amber'):null,job.application_status!=='none'?tag(STATUS[job.application_status]):null,tag(job.description?'Description obtained':'Description missing',job.description?'':'amber')),
+    el('div',{class:'job-tags'},tag(job.assessment_stale?'Reassessment pending':evaluation?.category.replaceAll('_',' ')||'Awaiting full evaluation',recommended(job)?'green':''),tag(job.country_id||'Location unverified'),job.evaluation&&job.assessment_market?tag('Assessment: '+job.assessment_market):null,evaluation && evaluation.assessment_version!==2?tag('Legacy assessment','amber'):null,job.application_status!=='none'?tag(STATUS[job.application_status]):null,tag(job.description?'Description obtained':'Description missing',job.description?'':'amber')),
     el('p',{class:'job-summary'},evaluation?.summary||'This vacancy has been observed. Career fit requires a retrieved description and AI assessment.'),
     el('div',{class:'job-bottom'},el('div',{class:'score'},evaluation?.weighted_score!==null && evaluation?.weighted_score!==undefined?`Legacy score: ${evaluation.weighted_score} / 100`:evaluation?(evaluation.recommend?'AI recommended':'Review evidence'):'Fit not assessed',el('small',{},job.assessment_stale?'Prior assessment retained until validated replacement':'Evidence-backed assessment')),actions(button('View opportunity',()=>detail(job)),button(job.application_status==='none'?'Save':'Saved / tracked',()=>act('/api/application',{job_id:job.id,status:'saved'},'Vacancy saved.'),'',job.application_status!=='none'))));
 }
@@ -177,7 +178,7 @@ function detail(job) {
   content.replaceChildren(el('div',{class:'dialog-head'},el('div',{},el('div',{class:'eyebrow'},job.source||'Source recorded'),el('h2',{},job.title),el('p',{class:'muted'},`${job.company||'Unknown employer'} · ${job.location||'Location unknown'}`)),close),
     actions(safeLink(job.url,'View original posting'),select,assessmentSelector(job),button('Refresh AI assessment',()=>act('/api/reevaluate',{job_id:job.id,market_id:job.assessment_market},'AI is reviewing this stored description. No source request is needed.'),'',!job.description||!!latestActive()||!state.profile.markets.some(m=>m.id===job.assessment_market))),
     actions(...['saved','applied','interview','offer','rejected','dismissed'].map(status=>button(STATUS[status],()=>changeStatus(status),'quiet',job.application_status===status))),
-    el('div',{class:'details-meta'},tag(job.availability==='closed_banner_observed'?'Closed banner observed':'Availability unconfirmed','amber'),tag('First seen '+date(job.first_seen)),job.description_obtained?tag('Description '+date(job.description_obtained)):null),
+    el('div',{class:'details-meta'},tag(job.country_id||'Location unverified'),tag(job.availability==='closed_banner_observed'?'Closed banner observed':'Availability unconfirmed','amber'),tag('First seen '+date(job.first_seen)),job.description_obtained?tag('Description '+date(job.description_obtained)):null),
     el('p',{class:'compact muted'},job.evidence||'Source observation only.'),
     evaluation?el('div',{},el('div',{class:'panel'},el('h3',{},'Career assessment'),el('p',{class:'prose'},evaluation.summary),el('div',{class:'job-tags'},tag(evaluation.category.replaceAll('_',' ')),tag(job.assessment_stale?'Reassessment pending · prior evidence retained':'Validated assessment'),evaluation.assessment_version!==2?tag(`Legacy score: ${evaluation.weighted_score??'Unknown'} / 100`):tag('Natural-language preferences · no weighted total')),el('p',{class:'inline-note'},'AI dimension assessments are subjective. Unknown facts require verification. ATS and HR explanations are separate; no proprietary ATS score is claimed.'),el('div',{class:'report-metrics'},Object.entries(evaluation.scores).map(([key,value])=>el('div',{},el('strong',{},value===null?'Unknown':value),el('small',{},DIMENSIONS[key]))))),
       el('div',{class:'details-columns'},el('div',{class:'panel'},el('h3',{},'ATS / CV readiness'),tag(evaluation.ats.readiness.replaceAll('_',' '),'amber'),el('p',{class:'prose'},evaluation.ats.explanation),el('h4',{},'Truthful CV improvements'),el('ul',{},evaluation.ats.truthful_cv_changes.map(t=>el('li',{},t)))),el('div',{class:'panel'},el('h3',{},'HR / Hiring manager'),el('p',{class:'prose'},evaluation.hr.assessment),el('h4',{},'Strengths'),el('ul',{},evaluation.hr.strengths.map(t=>el('li',{},t))),el('h4',{},'Gaps & interview risks'),el('ul',{},[...evaluation.hr.gaps,...evaluation.hr.interview_risks].map(t=>el('li',{},t))))),
@@ -196,7 +197,11 @@ function feedbackPanel(job) {
   return el('div',{class:'panel feedback-box'},el('h3',{},'Help your radar learn.'),el('p',{},'Like teaches AI; Save tracks your application. Rejections never train preferences. Default feedback scope: '+(job.country_id||'unclassified; review country before regional learning')+'.'),last?tag('Saved feedback: '+last.kind+' · '+last.scope,'green'):null,el('label',{class:'check'},global,'Apply to all markets'),el('div',{class:'feedback-reasons'},reasons.map(reason=>el('label',{class:'check'},el('input',{type:'checkbox',onChange:event=>event.target.checked?selected.add(reason):selected.delete(reason)}),reason))),note,actions(...['like','dislike','irrelevant'].map(kind=>{const control=button(kind==='like'?'Like':kind[0].toUpperCase()+kind.slice(1),()=>save(kind),last?.kind===kind?'primary':'');control.setAttribute('aria-pressed',String(last?.kind===kind));return control;})),job.feedback.length?el('details',{},el('summary',{},`Previous feedback · ${job.feedback.length}`),job.feedback.map(f=>el('p',{class:'compact'},`${f.kind} · ${f.scope} · ${f.reasons.join(', ')} · ${f.note} · ${date(f.at)}`))):null);
 }
 function assessmentSelector(job) {
-  const select=el('select',{'aria-label':'Assessment market',onChange:event=>detail({...job,assessment_market:event.target.value})},...(state.profile.markets||[]).map(m=>el('option',{value:m.id},m.country+' assessment')));
+  const markets=state.profile.markets||[];
+  const relevant=job.country_id?[job.country_id]:Object.keys(job.market_evaluations||{});
+  const label=id=>(markets.find(m=>m.id===id)?.country||id)+' assessment';
+  if(relevant.length<=1 || job.country_id) return tag(job.assessment_market?label(job.assessment_market):'Assessment pending');
+  const select=el('select',{'aria-label':'Assessment market',onChange:event=>detail({...job,assessment_market:event.target.value})},...relevant.map(id=>el('option',{value:id},label(id))));
   select.value=job.assessment_market||'';return select;
 }
 function backdropClick(event) {
@@ -275,6 +280,7 @@ function providerFields() {
   for(const name of ['codex','claude']) {
     const info=state.providers[name];
     choices.append(el('div',{class:'provider-card'+(draft.provider===name?' selected':'')},el('h3',{},name==='codex'?'OpenAI Codex':'Anthropic Claude Code'),el('p',{},info.status),tag(info.installed?'Installed':'Not installed',info.installed?'green':'amber'),tag(info.authenticated?'Subscription login detected':'Login not verified',info.authenticated?'green':'amber'),el('p',{},info.last_verified?'Last inference: '+date(info.last_verified.at):'A saved login is not a live inference test.'),button(draft.provider===name?'Selected':'Select provider',()=>{draft.provider=name;render();}),button('Test inference',()=>act('/api/provider-probe',{provider:name},'Bounded inference test started.'),'quiet',!info.installed)));
+    if(name==='codex'&&!info.authenticated) choices.append(el('div',{class:'status-box warning'},el('strong',{},info.installed?'Complete your Codex CLI sign-in':'Codex CLI setup needed'),el('p',{},'Desktop sign-in does not prove the separate CLI is ready. In Codex Desktop ask: "Prepare the JOB-RADAR AI Codex CLI and help me sign in with my own ChatGPT account." Codex can install the pinned CLI privately after your approval and start the official browser login; you do not need a terminal or an API key.'),el('p',{},'Then refresh installed environments and Test inference. Network permissions, account access or usage limits can still prevent AI execution.')));
   }
   return el('div',{},choices,button('Refresh installed environments',()=>act('/api/providers',{}),'text-link'),check('consent','I understand that my selected cloud AI provider processes the career context I send. Contact email, phone numbers and URLs are removed from extracted CV text, but other personal information may remain.'),check('linkedin_consent','I understand that LinkedIn guest endpoints are unsupported, automated use can conflict with LinkedIn terms, and coverage and vacancy openness are not guaranteed. No account or cookies are used.'),check('secondary','Allow supplementary AI web research on public official vacancy sources. Actual tool retrieval must be observable; unverified results are not imported.'));
 }

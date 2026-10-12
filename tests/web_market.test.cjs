@@ -85,3 +85,47 @@ test('unknown-country All view keeps regional recommendations without assigning 
   assert.equal(run('visibleJobs().filter(recommended).length'),1);
   assert.equal(run('visibleJobs()[0].assessment_stale'),true);
 });
+
+test('only country and All tabs remain; ambiguous locations stay labeled in All jobs',()=>{
+  const {run}=fixture();
+  const tabs=run('marketTabs()');
+  assert.deepEqual(nodes(tabs).filter(n=>n.tag==='button').map(n=>n.text),['Germany','Netherlands','All']);
+  run(`state.jobs=[{id:'unknown',title:'Synthetic',location:'Ambiguous city',application_status:'none',market_ids:['DE'],market_evaluations:{}}];`);
+  assert.equal(run('visibleJobs().length'),1);
+  assert.match(run('card(visibleJobs()[0])').text,/Location unverified/);
+  assert.equal(run("marketTab='DE';visibleJobs().length"),0);
+});
+
+test('verified country chooses only its assessment; other country never fills a missing assessment',()=>{
+  const {run}=fixture();
+  run(`state.jobs=[{id:'nl',country_id:'NL',evaluation:{summary:'Legacy German summary'},market_evaluations:{DE:{evaluation:{summary:'German summary',recommend:true}},NL:{evaluation:{summary:'Dutch summary'}}}}];`);
+  assert.equal(run("marketJob(state.jobs[0],'DE').evaluation.summary"),'Dutch summary');
+  assert.equal(run("assessmentSelector(marketJob(state.jobs[0],'all')).tag"),'span');
+  assert.match(run("assessmentSelector(marketJob(state.jobs[0],'all')).text"),/Netherlands assessment/);
+  run('delete state.jobs[0].market_evaluations.NL');
+  assert.equal(run("marketJob(state.jobs[0],'all').evaluation"),undefined);
+  assert.equal(run("marketJob(state.jobs[0],'all').assessment_market"),'NL');
+});
+
+test('assessment selector appears only for actual multiple assessments of an unverified location',()=>{
+  const {run}=fixture();
+  run(`state.jobs=[{id:'unknown',market_evaluations:{DE:{evaluation:{recommend:false}},NL:{evaluation:{recommend:true}}}}];`);
+  const select=run("assessmentSelector(marketJob(state.jobs[0],'all'))");
+  assert.equal(select.tag,'select');assert.equal(select.children.length,2);
+  assert.equal(select.value,'NL');
+  assert.equal(run("marketJob(state.jobs[0],'DE').assessment_market"),'DE');
+  run('delete state.jobs[0].market_evaluations.DE');
+  assert.equal(run("assessmentSelector(marketJob(state.jobs[0],'all')).tag"),'span');
+});
+
+test('onboarding distinguishes Desktop sign-in from a missing or unauthenticated CLI',()=>{
+  const {run}=fixture();
+  const missing=run('draft=defaultDraft();providerFields()');
+  assert.match(missing.text,/Codex CLI setup needed/);
+  assert.match(missing.text,/own ChatGPT account/);
+  assert.match(missing.text,/after your approval/);
+  const unauthenticated=run('state.providers.codex.installed=true;providerFields()');
+  assert.match(unauthenticated.text,/Complete your Codex CLI sign-in/);
+  const ready=run('state.providers.codex.authenticated=true;providerFields()');
+  assert.doesNotMatch(ready.text,/Codex CLI setup needed|Complete your Codex CLI sign-in/);
+});

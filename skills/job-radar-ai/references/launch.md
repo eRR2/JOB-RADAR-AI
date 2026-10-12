@@ -1,4 +1,13 @@
-# V2 Phase 1 launch boundary
+# V2 launch and second-user setup
+
+For first-time Windows Codex Desktop setup and safe upgrades, follow
+`docs/INSTALL_CODEX_DESKTOP.md` in the checkout. Codex downloads/reviews a public
+source archive, installs a new user workspace with `scripts/install-workspace.ps1`,
+and registers its exact path with `scripts/register-skill.ps1` using the documented
+user skills directory. No VS Code or manual CMD/Python command is required.
+Missing Codex CLI has a separate approval-gated private release ZIP helper,
+`scripts/setup-codex.ps1`; login uses the official CLI browser flow. Desktop
+login, CLI login status and actual inference remain separately verified.
 
 The repository adapters are recognized in `.agents/skills/job-radar-ai` (Codex)
 and `.claude/skills/job-radar-ai` (Claude Code). Invoke `$job-radar-ai` or
@@ -36,8 +45,8 @@ Do not silently choose a fresh database to evade a source stop. Once LinkedIn
 denies access, no retries, resets or substitute routes for that verification.
 
 Copying only this skill package elsewhere does not ship the app. A full repository
-checkout (or a future reviewed release archive) remains necessary. This local
-feature branch is unreleased: do not claim that installation from GitHub main
-already contains V2. Claude invocation conventions are documented, but live
+checkout or reviewed public source archive remains necessary. V2 is on
+`feat/v2-phase2-1-release-readiness`: GitHub main does not contain these changes.
+Claude invocation conventions are documented, but live
 execution needs Claude installed. See `docs/V2_PHASE1.md` in the checkout for
 runtime decisions, clean-machine limits and current evidence.

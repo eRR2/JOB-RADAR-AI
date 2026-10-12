@@ -9,6 +9,7 @@ param(
     [string]$Database = '.private/state.sqlite3'
 )
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $private = Join-Path $root '.private'
 $databasePath = [IO.Path]::GetFullPath((Join-Path $root $Database))
@@ -20,6 +21,8 @@ $runtime = Join-Path $private 'runtime'
 $python = Join-Path $runtime 'venv/Scripts/python.exe'
 $bun = Join-Path $runtime 'bun/bun-windows-x64/bun.exe'
 $manifest = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'runtime-manifest.json') -Raw | ConvertFrom-Json
+$codexDirectory = Join-Path $runtime ('codex/' + $manifest.codex.version)
+if (Test-Path -LiteralPath (Join-Path $codexDirectory 'codex.exe')) { $env:PATH = $codexDirectory + ';' + $env:PATH }
 if (-not $ManagedOnly) {
     if (-not (Test-Path -LiteralPath $python)) { $python = Join-Path $root '.venv/Scripts/python.exe' }
     if (-not (Test-Path -LiteralPath $bun)) {
@@ -66,7 +69,7 @@ function Assert-Health($health) {
 function Get-Archive($name) {
     $entry = $manifest.$name
     $archive = Join-Path $runtime "$name.zip"
-    Invoke-WebRequest -UseBasicParsing -Uri $entry.url -OutFile $archive
+    if (-not (Test-Path -LiteralPath $archive)) { Invoke-WebRequest -UseBasicParsing -Uri $entry.url -OutFile $archive }
     if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $entry.sha256) {
         throw 'Runtime checksum mismatch. Nothing from this archive was executed.'
     }
@@ -112,12 +115,23 @@ try {
         $env:PATH = (Split-Path -Parent $bun) + ';' + $env:PATH
         $diagnostics = Join-Path (Join-Path $private 'launch') $workspaceId
         New-Item -ItemType Directory -Path $diagnostics -Force | Out-Null
-        $arguments = @('-m','job_radar_ai','--root',('"'+$root+'"'),'--port',"$Port",'--database',('"'+$Database+'"'),'--skill-mode','--no-browser')
-        $process = Start-Process -FilePath $python -ArgumentList $arguments -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $diagnostics 'stdout.log') -RedirectStandardError (Join-Path $diagnostics 'stderr.log')
+        # Windows PowerShell Start-Process can leak the calling agent's pipe handles
+        # into the long-lived server. Close all unrelated handles explicitly so the
+        # launch command completes independently of the dashboard's lifetime.
+        $spawn = @'
+import pathlib,subprocess,sys
+root,port,db,logs=sys.argv[1:]
+logs=pathlib.Path(logs)
+with (logs/'stdout.log').open('ab') as out, (logs/'stderr.log').open('ab') as err:
+    p=subprocess.Popen([sys.executable,'-m','job_radar_ai','--root',root,'--port',port,'--database',db,'--skill-mode','--no-browser'],cwd=root,stdin=subprocess.DEVNULL,stdout=out,stderr=err,close_fds=True,creationflags=subprocess.CREATE_NO_WINDOW)
+print(p.pid)
+'@
+        $serverId = & $python -c $spawn $root "$Port" $Database $diagnostics
+        if ($LASTEXITCODE -ne 0) { throw 'Dashboard process could not be started.' }
         for ($attempt=0; $attempt -lt 30; $attempt++) {
             $health = Get-Health
             if ($health) { Assert-Health $health; break }
-            if ($process.HasExited) { throw 'Dashboard process exited. Inspect private launch diagnostics.' }
+            if (-not (Get-Process -Id $serverId -ErrorAction SilentlyContinue)) { throw 'Dashboard process exited. Inspect private launch diagnostics.' }
             Start-Sleep -Milliseconds 300
         }
         if (-not $health) { throw 'Dashboard readiness timed out. No browser success claimed.' }

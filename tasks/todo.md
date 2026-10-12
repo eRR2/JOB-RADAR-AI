@@ -33,3 +33,13 @@
 - [x] Synthetic regression and actual subscription Codex verification with zero live source requests; staged privacy/history checks before feature-branch publication.
 - [ ] Actual browser visual/click/accessibility QA and clean Windows VM; no connected browser surface in this session.
 - [ ] Upstream optional Bun development-dependency advisory audit; repository has no Bun lockfile. No runtime dependencies were added.
+
+## V2 Phase 2.1
+
+- [x] Country/All tabs only, unknown-location retention and verified-country assessment selection with conditional selector.
+- [x] Separate consent-gated private official Codex CLI setup; documented own-account browser login and visible failure guidance.
+- [x] Public archive installer, independent workspace, safe code upgrades and non-overwriting supported user skill registration.
+- [x] Isolated empty-user runtime/onboarding, real private CLI inference/profile and actual in-app browser click verification; zero live LinkedIn requests.
+- [x] Windows launcher command-completion regression and preserved existing catch-up/history/data boundaries.
+- [ ] Fully clean Windows VM, second-person login and actual Codex Desktop user-skill/folder UI.
+- [ ] Complete browser accessibility audit and live Claude verification.

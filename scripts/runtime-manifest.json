@@ -9,5 +9,11 @@
     "sha256": "0a0620930b6675d7ba440e81f4e0e00d3cfbe096c4b140d3fff02205e9e18922",
     "executable": "bun-windows-x64/bun.exe"
   },
-  "python": "3.13.7"
+  "python": "3.13.7",
+  "codex": {
+    "version": "0.162.1",
+    "url": "https://github.com/openai/codex/releases/download/rust-v0.162.1/codex-x86_64-pc-windows-msvc.exe.zip",
+    "sha256": "4b17206ed3045de64064b2016627d51fba3bde386d03838312054882a64d781d",
+    "executable": "codex-x86_64-pc-windows-msvc.exe"
+  }
 }

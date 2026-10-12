@@ -53,4 +53,12 @@ Provider CLI telemetry capable of verifiable secondary page content; live Claude
 
 ## V2 Phase 2 market state
 
+Phase 2.1 distribution is described in [second-user setup](INSTALL_CODEX_DESKTOP.md)
+and [verification](V2_PHASE2_1.md). A reviewed public source archive stays separate
+from the user workspace. Code hashes, collisions and database locks guard upgrades;
+`.private` is preserved. Supported user skill discovery points to the exact canonical
+checkout. Optional private Codex CLI bootstrap is separately consent-gated/checksummed
+with process-only PATH. Official CLI browser login and real inference are separate
+from Desktop login. Python/source/AI boundaries and database version 2 are preserved.
+
 See [Phase 2 boundaries and migration](V2_PHASE2.md). `markets.py` validates configurable country profiles and exact query-location boundaries; explicit country tokens are source evidence, while provenance/cities are not country verification. Additive schema version 2 retains every original row and creates a verified consistent backup before migration. Market assessment and feedback scope tables share global job identities/application history. Regional revisions and learned preferences are separate; explicitly global feedback can affect all markets. One run, one LinkedIn transport, fair quotas and persistent spacing/stops cover Search all. Stale recommendations remain visible until validated replacement. Skill mode retains catch-up reminders only.

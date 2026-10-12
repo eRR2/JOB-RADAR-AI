@@ -5,6 +5,9 @@ import shutil
 import tempfile
 import venv
 import unittest
+import socket
+import time
+import urllib.request
 from pathlib import Path
 
 
@@ -55,3 +58,33 @@ class SkillLaunchTests(unittest.TestCase):
             result = self.launch('-Check', '-Database', path)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('Database must', result.stderr)
+
+    def test_first_launch_returns_without_inheriting_agent_pipes_and_reuses_workspace(self):
+        Path('.private').mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=Path('.private').resolve()) as folder:
+            database=str((Path(folder)/'fresh.sqlite3').relative_to(Path.cwd()))
+            with socket.socket() as sock:
+                sock.bind(('127.0.0.1',0)); port=sock.getsockname()[1]
+            url=f'http://127.0.0.1:{port}'
+            try:
+                first=self.launch('-NoBrowser','-Database',database,'-Port',str(port))
+                self.assertEqual(first.returncode,0,first.stdout+first.stderr)
+                initial=json.loads(first.stdout)
+                self.assertTrue(initial['ready']); self.assertFalse(initial['browser_requested'])
+                second=self.launch('-NoBrowser','-Database',database,'-Port',str(port))
+                self.assertEqual(second.returncode,0,second.stderr)
+                self.assertEqual(json.loads(second.stdout)['workspace_id'],initial['workspace_id'])
+                with urllib.request.urlopen(url+'/api/state') as response: state=json.load(response)
+                self.assertEqual(state['jobs'],[]); self.assertIsNone(state['profile'])
+                self.assertTrue(state['skill_mode'])
+            finally:
+                try:
+                    with urllib.request.urlopen(url+'/api/state') as response: state=json.load(response)
+                    request=urllib.request.Request(url+'/api/close',data=b'{}',headers={'Content-Type':'application/json','Origin':url,'X-Radar-CSRF':state['csrf']})
+                    with urllib.request.urlopen(request): pass
+                    for _ in range(20):
+                        try:
+                            urllib.request.urlopen(url+'/api/health',timeout=.2).close()
+                            time.sleep(.1)
+                        except OSError: break
+                except OSError: pass

@@ -106,6 +106,8 @@ class Hunter:
             if original_profile and original_profile.get('markets'):
                 if job:
                     job['country_id']=country_of(job,original_profile['markets'])
+                    if job['country_id'] and market_id and market_id!=job['country_id']:
+                        raise ValueError('Reassessment must match the verified listing country.')
                 market_id=market_id or country_of(job or {},original_profile['markets'])
                 market=next((m for m in original_profile['markets'] if m['id']==market_id),None)
                 if not market:
