@@ -320,6 +320,7 @@ def structured_jobs(page):
             identifier = item.get('identifier') or ''
             identifier = identifier.get('value', '') if isinstance(identifier, dict) else identifier
             jobs.append({'title': item.get('title', ''), 'company': org.get('name', '') if isinstance(org, dict) else org,
+                         'date_posted':item.get('datePosted',''),'valid_through':item.get('validThrough',''), 'apply_urls':[item.get('url')] if item.get('directApply') is True and item.get('url') else [],
                          'location': '; '.join(locations), 'description': plain(item.get('description', '')),
                          'requisition_id': str(identifier), 'source_url': page['url'], 'evidence': page})
     return jobs

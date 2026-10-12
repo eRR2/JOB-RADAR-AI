@@ -68,10 +68,10 @@ class ResearchTests(unittest.TestCase):
             store.set('profile',dict(provider='codex',consent=True,secondary=True,cv_text='Led a systems team',markets=[dict(id='FR',country='France',locations=['France'],hard_requirements='')],hard_requirements=''))
             run=store.start_run('codex');fetch=PublicFetcher(store,request=lambda _:self.fail('Mock description fetch only'))
             full=dict(description='Lead systems team. '+('Actual synthetic description. '*8),source_url='https://employer.example/role',evidence={'sha256':'synthetic'})
-            with patch('job_radar_ai.research.verified_matches',return_value=[full]) as matches:
+            with patch('job_radar_ai.completion.recover',return_value=full) as matches:
                 ResearchHunter(tmp,store).execute(run,threading.Event(),ai=FullAI(),fetcher=fetch)
                 self.assertEqual(matches.call_args.args[1],'https://employer.example/role')
-                self.assertEqual(matches.call_args.args[3],'https://employer.example')
+                self.assertEqual(matches.call_args.args[2],'https://employer.example')
             result=store.runs()[0];job=store.jobs()[0]
             self.assertEqual(result['payload']['evaluated'],1)
             self.assertEqual(job['evaluation_status'],'fully_evaluated')

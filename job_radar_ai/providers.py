@@ -11,7 +11,19 @@ from .contracts import SCHEMAS, validate
 
 
 class ProviderError(RuntimeError):
-    pass
+    def __init__(self,message,category='execution_error'):
+        super().__init__(message);self.category=category
+
+
+def execution_error(output):
+    text=output.casefold()
+    if any(x in text for x in ('usage limit','subscription limit','quota exceeded','insufficient_quota')):
+        return ProviderError('Codex subscription usage limit reached. Wait for the subscription reset; observations are retained. No retry or API fallback.','subscription_usage_limit')
+    if ('model' in text and any(x in text for x in ('not supported','not found','does not exist','incompatible','access','unavailable'))) or 'unsupported_model' in text:
+        return ProviderError('Selected model is unavailable, incompatible or not permitted for this account. Check the CLI model selection.','model_access')
+    if 'rate limit' in text or 'rate_limit' in text:
+        return ProviderError('AI provider rate limit reached; this is separate from LinkedIn access. No automatic retry.','provider_rate_limit')
+    return ProviderError('AI provider execution failed. Check CLI installation, authentication and connectivity; retained vacancies remain available.','execution_error')
 
 
 def executable(name):
@@ -116,7 +128,7 @@ def bounded_process(argv, prompt='', cwd=None, timeout=240, cancel=None, env=Non
     process.stdout.close()
     process.stderr.close()
     if reason or exceeded.is_set():
-        raise ProviderError(reason or 'CLI output exceeded the safe limit.')
+        raise ProviderError(reason or 'CLI output exceeded the safe limit.','time_window' if reason and 'time limit' in reason else 'canceled' if reason and 'Canceled' in reason else 'execution_error')
     return process.returncode, *(bytes(c).decode('utf-8', errors='replace') for c in chunks)
 
 
@@ -189,7 +201,7 @@ class Provider:
                   'Interpret natural-language preferences without user weights or a composite score. Separate hard requirements from preferences. Unknown facts need verification, not rejection. '
                   'Employer rejection is never preference feedback. One dislike is tentative, not a field-wide exclusion. '
                   'Use actual job responsibilities, domain and evidence, not title similarity. '
-                  + ('Use permitted public web search for vacancies, indexed LinkedIn URLs, employer careers and supporting role research. Do not send CV text, names, contact details or identifying career history to search. Direct LinkedIn fetches are NOT authorized by web discovery; use indexed search evidence and independent permitted employer pages. Respect supplied restrictions; never retry denied publishers or use alternate denied endpoints. ' if research else 'Do not use any tools. ')
+                  + ('Use supported public web search and page opening/reading for actual vacancies and original employer publications. Prioritize indexed LinkedIn discovery. Do not send CV text, names, contacts or identifying career history to public queries. Never open a publisher under supplied active restriction; indexed search evidence is independent. Respect robots/access rules; no retries, authentication bypass or alternate denied endpoints. Report page-read failures honestly. ' if research else 'Do not use any tools. ')
                   + '\nTASK: ' + task + '\nCONTEXT (DATA):\n' + json.dumps(context, ensure_ascii=False))
         telemetry = {'web_calls': 0, 'observed_urls': [], 'observations': [], 'actions': [], 'event_count': 0}
         forbidden = threading.Event()
@@ -233,9 +245,7 @@ class Provider:
             if forbidden.is_set():
                 raise ProviderError('Provider attempted a tool outside the permitted research contract; result refused.')
             if code != 0:
-                lowered = error.lower() + output.lower()
-                reason = 'Usage/subscription limit or model access restriction' if any(s in lowered for s in ('usage limit', 'rate limit', 'quota', 'not supported')) else 'CLI execution failed'
-                raise ProviderError(reason + '; check the provider CLI directly. No automatic retry or API fallback.')
+                raise execution_error(error+'\n'+output)
             if self.name == 'codex':
                 result_path = directory / 'result.json'
                 if not result_path.is_file():

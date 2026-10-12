@@ -46,7 +46,7 @@ denies access, no retries, resets or substitute routes for that verification.
 
 Copying only this skill package elsewhere does not ship the app. A full repository
 checkout or reviewed public source archive remains necessary. V5 is on
-`feat/v5-ai-career-research`: GitHub main does not contain these changes.
+`feat/v5-1-research-completion`: GitHub main does not contain these changes.
 Claude invocation conventions are documented, but live
 execution needs Claude installed. See `docs/V5.md` in the checkout for
 runtime decisions, clean-machine limits and current evidence.

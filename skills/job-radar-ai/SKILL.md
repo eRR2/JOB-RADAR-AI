@@ -25,8 +25,8 @@ ATS discovery/recovery remains permitted. Public APIs/JobPosting text must pass 
 validation. User-supplied text is labeled and never called publisher-verified.
 
 Use the application as the persistent source of truth. Onboarding uses CV preview and
-one next-move text, followed by a short editable understanding and explicit confirmation.
-Reinterpret summary changes before accepting. Keep individual preferences, country fields
+one next-move text, followed by Search with AI; interpretation remains internal.
+The original text is authoritative; ask only a targeted essential clarification. Keep individual preferences, country fields
 and hard constraints internally; do not expose technical preference controls. Preserve
 existing V5 CV/history and original user texts. Never import historical V1–V4.1 storage.
 No universal profession, country, salary or leadership defaults. Only two essential
@@ -53,3 +53,9 @@ Native Windows task creation and destructive data deletion require the dashboard
 V5: read docs/V5.md. Indexed LinkedIn web discovery is primary and independent of direct
 access. AI researches in timed batches; ATS coverage is optional. Model prose never
 becomes retrieved source evidence. Preserve generation-5 user data on later launches.
+
+V5.1: read docs/V5_1.md. Permit supported page reading alongside search, respecting
+active publisher restrictions. Investigate retained opportunities without rediscovery.
+Use verified/inferred/unknown geographic labels; only verified-country feedback teaches
+that country. Keep promising preliminary leads visible separately from full Recommended.
+Do not reset current V5 data. No compulsory summary approval.

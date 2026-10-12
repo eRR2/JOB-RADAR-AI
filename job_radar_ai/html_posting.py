@@ -12,21 +12,22 @@ class JobMain(HTMLParser):
         attrs=dict(attrs)
         if tag=='link' and 'canonical' in attrs.get('rel','').split():self.canonical=attrs.get('href','')
         if tag not in ('br','hr','meta','link','img','input','source','wbr'):self.depth+=1
-        if tag in ('main','article') and self.root is None:self.root=self.depth;self.count+=1
+        classes=set(attrs.get('class','').split())
+        if self.root is None and (tag in ('main','article') or attrs.get('itemprop')=='description' or classes & {'article-mainbody','job-description','jobDescription','job__description'}):self.root=self.depth;self.count+=1
+        if tag=='h1':self.h1+=1
         if self.root:
             if tag in ('script','style','nav','footer','header'):self.hidden+=1
-            if tag=='h1':self.h1+=1
             if tag in ('p','div','li','br','h1','h2','h3'):self.parts.append('\n')
     def handle_endtag(self,tag):
+        if tag=='h1':self.h1=max(0,self.h1-1)
         if self.root:
-            if tag=='h1':self.h1=max(0,self.h1-1)
             if tag in ('script','style','nav','footer','header'):self.hidden=max(0,self.hidden-1)
             if self.depth==self.root:self.root=None
         if tag not in ('br','hr','meta','link','img','input','source','wbr'):self.depth=max(0,self.depth-1)
     def handle_data(self,data):
+        if self.h1 and not self.hidden:self.title.append(data)
         if self.root and not self.hidden:
             self.parts.append(data)
-            if self.h1:self.title.append(data)
 
 
 def official_html(job,url,employer_url,fetcher):

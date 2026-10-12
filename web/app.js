@@ -5,7 +5,7 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const LOCATION_STATUS={preferred:'Within preferred location',secondary_conditional:'Secondary / conditional location',verified_remote:'Verified remote opportunity',outside_preferred:'Outside preferred location',location_unknown:'Location unknown'};
 const DIMENSIONS = {progression:'Career progression & leadership',technical:'Professional & technical fit',salary:'Salary & benefits',flexibility:'Work flexibility',company:'Company & industry',location:'Location & commuting',learning:'Learning & future opportunities'};
 const STATUS = {none:'Not tracked',saved:'Saved',applied:'Applied',interview:'Interview',offer:'Offer',rejected:'Rejected',dismissed:'Dismissed'};
-let state, view = 'discover', discoverTab = 'recommended', marketTab = 'all', applicationTab = 'saved', wizardStep = 1, draft, filterText = '', filterCategory = 'all', sortBy = 'score', shown = 40, busy = false, intentText, intentReview, intentReviewKey, reviewEdits=[];
+let state, view = 'discover', discoverTab = 'promising', marketTab = 'all', applicationTab = 'saved', wizardStep = 1, draft, filterText = '', filterCategory = 'all', sortBy = 'score', shown = 40, busy = false, intentText, intentReview, intentReviewKey, reviewEdits=[];
 
 function el(tag, attributes = {}, ...children) {
   const node = document.createElement(tag);
@@ -88,7 +88,7 @@ function marketTabs() {
   }
   return tabs;
 }
-function inMarket(job, market=marketTab) { return market==='all' || job.country_id===market; }
+function inMarket(job, market=marketTab) { return market==='all' || (job.display_country_id||job.country_id)===market; }
 function marketJob(job, market=marketTab) {
   const configured=(state.profile?.markets||[]).map(m=>m.id);
   const assessments=Object.keys(job.market_evaluations||{});
@@ -110,22 +110,25 @@ function discover() {
   const marketJobs=visibleJobs();
   const root=el('div',{},el('div',{class:'hero'},el('div',{},el('div',{class:'eyebrow'},'OPPORTUNITIES, WITH PERSPECTIVE'),el('h1',{},'Your next chapter, found.'),el('p',{},'Your AI explores the roles you know — and the paths you may not have considered. Every recommendation starts with your experience.'),actions(searchButton(),button('Tune your preferences',()=>navigate('preferences'),'quiet')),el('div',{class:'inline-note'},'Last search: '+date(last?.started))),radar()),runStatus());
   root.append(marketTabs(),el('div',{class:'stat-grid'},discoveryCounts(marketJobs).map(([label,value])=>stat(label,value,'Selected market · retained state'))));
-  root.append(button('Complete missing descriptions',()=>act('/api/complete-descriptions',{},'Bounded description recovery started for up to 10 retained vacancies.'),'',!!latestActive()||state.operation?.status==='running'||!state.jobs.some(j=>!j.description)));
+  root.append(button('Investigate promising opportunities',()=>act('/api/complete-descriptions',{},'Targeted description and freshness investigation started; no new discovery run.'),'',!!latestActive()||state.operation?.status==='running'||!state.jobs.some(j=>!j.description)));
   if(state.profile.market_migration?.review_required)root.append(el('div',{class:'status-box warning'},el('strong',{},'Review regional preferences before searching'),el('p',{},'Ambiguous legacy geography was preserved. Set each country’s conditions in Preferences, save, and confirm the review.'),button('Review in Preferences',()=>navigate('preferences'))));
   const outcome=marketTab==='all'?last?.payload:last?.payload.markets?.[marketTab];
   root.append(stat('Source limitations',new Set(outcome?.warnings||[]).size,'Latest selected market run'));
   const tabs=el('div',{class:'tabs',role:'group','aria-label':'Discovery views'});
-  for (const [key,text] of [['recommended','Recommended'],['all','All Opportunities'],['new','New Opportunities']]) tabs.append(button(text,()=>{discoverTab=key;shown=40;render();},discoverTab===key?'active':''));
+  for (const [key,text] of [['promising','Promising — Needs Verification'],['recommended','Recommended'],['all','All Opportunities'],['new','New Opportunities']]) tabs.append(button(text,()=>{discoverTab=key;shown=40;render();},discoverTab===key?'active':''));
   root.append(el('div',{class:'section-head'},el('div',{},el('h2',{},'Opportunities worth a closer look'),el('p',{},'Career fit, transferable strengths and the facts still missing.')),tag('LinkedIn first','green')),tabs,filters());
   let jobs=marketJobs;
   if(discoverTab==='recommended') jobs=jobs.filter(recommended);
+  if(discoverTab==='promising') jobs=jobs.filter(j=>j.preliminary?.promising&&!j.evaluation&&j.availability!=='closed_banner_observed');
   if(discoverTab==='new') jobs=jobs.filter(j => last?.payload.job_ids?.includes(j.id) && new Date(j.first_seen)>=new Date(last.started));
   jobs=filterJobs(jobs);
   if (!jobs.length) root.append(empty(discoverTab==='recommended'?'Your next opportunity starts here':'No jobs in this view',state.jobs.length?'Try All jobs or adjust your filters. Missing descriptions and low-ranked jobs are always retained.':'Start an AI search to discover real vacancies. Your AI chooses the queries; nothing here is demo data.',state.jobs.length?button('See all jobs',()=>{discoverTab='all';filterText='';filterCategory='all';render();}):searchButton()));
   else root.append(jobList(jobs));
-  root.append(el('p',{class:'inline-note'},'Guest endpoints provide limited coverage. Observed listings are not confirmed open; check the original posting before applying.'));
+  root.append(el('p',{class:'inline-note'},'Preliminary findings are useful leads, not full assessments. Research their description and freshness without repeating discovery.'));
   return root;
 }
+function freshnessLabel(job){return job.availability==='closed_banner_observed'?'Confirmed closed':job.freshness?.status==='confirmed_open'?'Confirmed open':'Güncellik doğrulanmadı';}
+function countryLabel(job){const id=job.display_country_id||job.country_id;const country=state.profile?.markets.find(m=>m.id===id)?.country||id;return job.geography?.status==='inferred'?'Likely '+country+' · location inferred':country||'Location unverified';}
 function recommended(job) { return job.evaluation?.recommend && !job.identity_review_required && job.location_status!=='outside_preferred' && ['none','saved'].includes(job.application_status) && job.availability!=='closed_banner_observed'; }
 
 function stat(label,value,note) { return el('div',{class:'stat'},el('small',{},label),el('strong',{},value),el('p',{},note)); }
@@ -145,15 +148,16 @@ function updateList() {
 }
 function filterJobs(jobs) {
   const query=filterText.toLowerCase();
-  return jobs.filter(j=>[j.title,j.company,j.location].some(s=>(s||'').toLowerCase().includes(query)) && (filterCategory==='all' || (j.evaluation?.category||'unevaluated')===filterCategory)).sort((a,b)=>sortBy==='company'?(a.company||'').localeCompare(b.company||''):sortBy==='new'?b.first_seen.localeCompare(a.first_seen):Number(recommended(b))-Number(recommended(a))||b.first_seen.localeCompare(a.first_seen));
+  return jobs.filter(j=>[j.title,j.company,j.location].some(s=>(s||'').toLowerCase().includes(query)) && (filterCategory==='all' || (filterCategory==='unevaluated'?!j.evaluation:(j.evaluation?.category||j.preliminary?.category||'unevaluated')===filterCategory))).sort((a,b)=>sortBy==='company'?(a.company||'').localeCompare(b.company||''):sortBy==='new'?b.first_seen.localeCompare(a.first_seen):Number(recommended(b))-Number(recommended(a))||b.first_seen.localeCompare(a.first_seen));
 }
 function jobList(jobs) { return el('div',{},el('div',{class:'job-grid'},jobs.slice(0,shown).map(card)),jobs.length>shown?button(`Show more (${jobs.length-shown} remaining)`,()=>{shown+=40;render();}):null,el('p',{class:'inline-note'},`${Math.min(shown,jobs.length)} of ${jobs.length} opportunities`)); }
 function card(job) {
   const evaluation=job.evaluation;
   return el('article',{class:'job-card'},el('div',{class:'job-top'},el('div',{class:'company-mark','aria-hidden':'true'},(job.company||'?').slice(0,2).toUpperCase()),el('div',{},el('h3',{},job.title),el('div',{class:'company-line'},[job.company||'Employer not verified',job.location||'Location unknown'].join(' · ')))),
-    el('div',{class:'job-tags'},tag(job.assessment_stale?'Reassessment pending':evaluation?.category.replaceAll('_',' ')||'Awaiting full evaluation',recommended(job)?'green':''),tag(job.country_id||'Location unverified'),job.evaluation&&job.assessment_market?tag('Assessment: '+job.assessment_market):null,evaluation && evaluation.assessment_version!==2?tag('Legacy assessment','amber'):null,job.application_status!=='none'?tag(STATUS[job.application_status]):null,tag(job.description?'Description obtained':'Description missing',job.description?'':'amber')),
+    el('div',{class:'job-tags'},tag(job.assessment_stale?'Reassessment pending':evaluation?.category.replaceAll('_',' ')||'Awaiting full evaluation',recommended(job)?'green':''),tag(countryLabel(job)),job.evaluation&&job.assessment_market?tag('Assessment: '+job.assessment_market):null,evaluation && evaluation.assessment_version!==2?tag('Legacy assessment','amber'):null,job.application_status!=='none'?tag(STATUS[job.application_status]):null,tag(job.description?'Description obtained':'Description missing',job.description?'':'amber'),tag(freshnessLabel(job),'amber')),
     el('p',{class:'job-summary'},evaluation?.summary||job.preliminary?.explanation||'This vacancy has been observed. Career fit requires further evidence.'),
-    el('div',{class:'job-bottom'},el('div',{class:'score'},evaluation?.weighted_score!==null && evaluation?.weighted_score!==undefined?`Legacy score: ${evaluation.weighted_score} / 100`:evaluation?(evaluation.recommend?'AI recommended':'Review evidence'):'Fit not assessed',el('small',{},job.assessment_stale?'Prior assessment retained until validated replacement':'Evidence-backed assessment')),actions(button('View opportunity',()=>detail(job)),button(job.application_status==='none'?'Save':'Saved / tracked',()=>act('/api/application',{job_id:job.id,status:'saved'},'Vacancy saved.'),'',job.application_status!=='none'))));
+    job.preliminary&&!evaluation?el('details',{},el('summary',{},'Observed evidence & what to verify'),el('p',{class:'prose'},(job.source_observations||[]).map(o=>o.text).join('\n')),el('ul',{},job.preliminary.gaps.map(g=>el('li',{},g)))):null,
+    el('div',{class:'job-bottom'},el('div',{class:'score'},evaluation?.weighted_score!==null && evaluation?.weighted_score!==undefined?`Legacy score: ${evaluation.weighted_score} / 100`:evaluation?(evaluation.recommend?'AI recommended':'Review evidence'):job.preliminary?'Preliminary fit · needs verification':'Fit not assessed',el('small',{},job.assessment_stale?'Prior assessment retained until validated replacement':'Evidence-backed assessment')),actions(button('View opportunity',()=>detail(job)),button(job.application_status==='none'?'Save':'Saved / tracked',()=>act('/api/application',{job_id:job.id,status:'saved'},'Vacancy saved.'),'',job.application_status!=='none'))));
 }
 function applications() {
   const root=el('div',{},title('Keep your next move in view.','Saved opportunities, active applications and a dated history — all in one place.'));
@@ -182,10 +186,12 @@ function detail(job) {
   content.replaceChildren(el('div',{class:'dialog-head'},el('div',{},el('div',{class:'eyebrow'},job.source||'Source recorded'),el('h2',{},job.title),el('p',{class:'muted'},`${job.company||'Unknown employer'} · ${job.location||'Location unknown'}`)),close),
     actions(safeLink(job.url,'View original posting'),select,assessmentSelector(job),button('Refresh AI assessment',()=>act('/api/reevaluate',{job_id:job.id,market_id:job.assessment_market},'AI is reviewing this stored description. No source request is needed.'),'',!job.description||!!latestActive()||!state.profile.markets.some(m=>m.id===job.assessment_market))),
     actions(...['saved','applied','interview','offer','rejected','dismissed'].map(status=>button(STATUS[status],()=>changeStatus(status),'quiet',job.application_status===status))),
-    el('div',{class:'details-meta'},tag(job.country_id||'Location unverified'),job.location_status?tag(LOCATION_STATUS[job.location_status]||'Location unknown','amber'):null,job.integration==='experimental'?tag('Experimental source','amber'):null,job.identity_review_required?tag('Identity needs review','amber'):null,tag(job.availability==='closed_banner_observed'?'Closed banner observed':'Availability unconfirmed','amber'),tag('First seen '+date(job.first_seen)),job.description_obtained?tag('Description '+date(job.description_obtained)):null),
+    el('div',{class:'details-meta'},tag(countryLabel(job)),job.location_status?tag(LOCATION_STATUS[job.location_status]||'Location unknown','amber'):null,job.integration==='experimental'?tag('Experimental source','amber'):null,job.identity_review_required?tag('Identity needs review','amber'):null,tag(freshnessLabel(job),'amber'),tag('First seen '+date(job.first_seen)),job.description_obtained?tag('Description '+date(job.description_obtained)):null),
     el('p',{class:'compact muted'},job.evidence||'Source observation only.'),
+    ...(job.freshness?.published_at?[el('p',{class:'compact'},'Publisher publication date: '+job.freshness.published_at+' · checked '+date(job.freshness.checked_at))]:[]),
     descriptionPanel(job),
     ...(job.preliminary?[el('div',{class:'panel'},el('h3',{},'Preliminary career perspective'),tag('Title / indexed evidence only','amber'),el('p',{class:'prose'},job.preliminary.explanation),el('p',{},'Still to verify: '+job.preliminary.gaps.join('; ')))]:[]),
+    el('details',{},el('summary',{},'Actually observed source evidence'),el('p',{class:'prose'},(job.source_observations||[]).map(o=>o.text).join('\n'))),
     evaluation?el('div',{},el('div',{class:'panel'},el('h3',{},'Career assessment'),el('p',{class:'prose'},evaluation.summary),el('div',{class:'job-tags'},tag(evaluation.category.replaceAll('_',' ')),tag(job.assessment_stale?'Reassessment pending · prior evidence retained':'Validated assessment'),evaluation.assessment_version!==2?tag(`Legacy score: ${evaluation.weighted_score??'Unknown'} / 100`):tag('Natural-language preferences · no weighted total')),el('p',{class:'inline-note'},'AI dimension assessments are subjective. Unknown facts require verification. ATS and HR explanations are separate; no proprietary ATS score is claimed.'),el('div',{class:'report-metrics'},Object.entries(evaluation.scores).map(([key,value])=>el('div',{},el('strong',{},value===null?'Unknown':value),el('small',{},DIMENSIONS[key]))))),
       el('div',{class:'details-columns'},el('div',{class:'panel'},el('h3',{},'ATS / CV readiness'),tag(evaluation.ats.readiness.replaceAll('_',' '),'amber'),el('p',{class:'prose'},evaluation.ats.explanation),el('h4',{},'Truthful CV improvements'),el('ul',{},evaluation.ats.truthful_cv_changes.map(t=>el('li',{},t)))),el('div',{class:'panel'},el('h3',{},'HR / Hiring manager'),el('p',{class:'prose'},evaluation.hr.assessment),el('h4',{},'Strengths'),el('ul',{},evaluation.hr.strengths.map(t=>el('li',{},t))),el('h4',{},'Gaps & interview risks'),el('ul',{},[...evaluation.hr.gaps,...evaluation.hr.interview_risks].map(t=>el('li',{},t))))),
       el('div',{class:'panel'},el('h3',{},'Evidence, not just a title'),evaluation.evidence.map(item=>el('div',{class:'evidence'},el('strong',{},item.requirement),el('blockquote',{},'Job: “'+item.job_quote+'”'),el('blockquote',{},item.cv_quote?'CV: “'+item.cv_quote+'”':'No direct CV quote; verify evidence.'),el('p',{},item.assessment))),evaluation.hard_requirements.map(item=>el('div',{class:'evidence'},tag(item.status,item.status==='violated'?'red':item.status==='unknown'?'amber':'green'),el('strong',{},' '+item.requirement),el('p',{},item.reason))),el('h4',{},'Information to verify'),el('ul',{},evaluation.missing_information.map(t=>el('li',{},t))))) : el('div',{class:'status-box warning'},el('strong',{},'Career fit has not been assessed.'),el('p',{},'A real full description and successful structured AI review are required. This vacancy remains visible.')),
@@ -247,6 +253,12 @@ function reports() {
   root.append(el('div',{class:'panel report-history'},table),el('div',{id:'historical-report'}));return root;
 }
 function reportPanel(run) {
+  const panel=reportContent(run);
+  const retained=state.jobs.filter(j=>run.payload.job_ids?.includes(j.id)&&j.preliminary?.promising&&inMarket(j));
+  if(retained.length)panel.append(el('div',{class:'panel'},el('h3',{},'Promising retained opportunities'),el('p',{},'These buttons open actual stored vacancy identities. The research narrative is an AI overview, not independent proof of additional postings.'),...retained.map(j=>button(j.title+' · '+(j.company||'Employer unverified'),()=>detail(marketJob(j)),'text-link'))));
+  return panel;
+}
+function reportContent(run) {
   if(run.payload.markets) {
     const entries=Object.entries(run.payload.markets).filter(([id])=>marketTab==='all'||marketTab===id);
     const p=run.payload, jobs=state.jobs.filter(j=>p.job_ids?.includes(j.id)).map(j=>marketJob(j,'all'));
@@ -313,27 +325,13 @@ function preferences() {
 function intentPanel() {
   intentText ??= state.proposed_intent?.input?.looking_for ?? state.profile?.looking_for ?? state.profile?.objectives ?? '';
   const original=el('div',{},cvUpload(),el('label',{class:'field',for:'next-move'},'What are you looking for in your next career move?',el('textarea',{id:'next-move',value:intentText,rows:'7',maxlength:'12000',placeholder:'Describe what matters to you in your own words. Unknown details can stay unknown.',onInput:event=>{intentText=event.target.value;}})));
-  const root=el('div',{class:'panel'},state.proposed_intent?el('details',{},el('summary',{},'Your original words & CV'),original):original);
+  const root=el('div',{class:'panel'},original);
   if(state.intent_review_required)root.append(el('p',{class:'status-box warning'},'Review your preserved settings before replacing them. No new CV upload is required.'));
   root.append(el('details',{},el('summary',{},'Privacy & AI connection'),providerFields()));
   if(state.profile)root.append(button('Save privacy & connection',()=>act('/api/connection',{provider:draft.provider,consent:draft.consent,linkedin_consent:draft.linkedin_consent,secondary:draft.secondary},'Privacy and connection saved.')));
   const active=!!latestActive()||state.operation?.status==='running';
   if(state.operation)root.append(el('div',{class:'status-box',role:'status'},state.operation.kind+' · '+state.operation.status,el('p',{},state.operation.message),active?button('Cancel',()=>act('/api/cancel',{})):null));
-  root.append(button('Interpret my next move',()=>act('/api/intent-analysis',{looking_for:intentText,provider:draft.provider,consent:draft.consent,linkedin_consent:draft.linkedin_consent,secondary:draft.secondary},'AI interpretation started; review before searching.'),'primary',active));
-  const proposed=state.proposed_intent;
-  if(proposed){
-    const key=JSON.stringify(proposed);
-    if(intentReviewKey!==key){intentReviewKey=key;intentReview=structuredClone(proposed.intent);reviewEdits=[];}
-    const summary=el('textarea',{'aria-label':'Edit understood summary',class:'intent-summary',rows:'7',maxlength:'12000',value:intentReview.summary,onInput:e=>{intentReview.summary=e.target.value;confirm.disabled=true;reinterpret.hidden=false;}});
-    const review=el('div',{class:'intent-review'},el('h2',{},"Here’s what I understood"),el('p',{},'Review the summary. If you change it, AI will update the preferences before you confirm.'),summary);
-    for(const question of intentReview.questions)review.append(el('p',{class:'status-box'},question));
-    if(intentReview.questions.length)review.append(el('p',{},'Add any essential answer to your next-move text and interpret again. Salary and leadership details are optional.'));
-    const confirm=button('Looks right — continue',async()=>{if(intentReview.summary!==proposed.intent.summary)return toast('Reinterpret your edits before confirming.',true);try{await api('/api/intent-accept',{intent:intentReview,input:{looking_for:intentText,provider:draft.provider,consent:draft.consent,linkedin_consent:draft.linkedin_consent,secondary:draft.secondary},review_edits:reviewEdits.flat().join('\n'),confirm:'CONFIRM SEARCH INTENT'});draft=null;view='discover';await refresh();await act('/api/search',{market_id:'all'},'Discovering from your confirmed intent.');}catch(error){toast(error.message,true);}},'primary',active||!intentReview.markets.length||intentText!==proposed.input.looking_for||intentReview.summary!==proposed.intent.summary);
-    const reinterpret=button('Reinterpret my edits',()=>act('/api/intent-analysis',{looking_for:intentText,summary_edit:intentReview.summary,provider:draft.provider,consent:draft.consent,linkedin_consent:draft.linkedin_consent,secondary:draft.secondary},'AI is updating your understanding. Review it before continuing.'),'',active);
-    reinterpret.hidden=intentReview.summary===proposed.intent.summary;
-    review.append(actions(confirm,button('Edit my preferences',()=>summary.focus()),reinterpret));
-    root.append(review);
-  }else if(state.profile?.intent)root.append(el('div',{},el('h2',{},'Confirmed understanding'),el('p',{class:'prose'},state.profile.intent.summary)));
+  root.append(button('Search with AI',async()=>{await act('/api/career-search',{looking_for:intentText,provider:draft.provider,consent:draft.consent,linkedin_consent:draft.linkedin_consent,secondary:draft.secondary},'AI is interpreting your complete request and starting research.');},'primary',active));
   return root;
 }
 function updatePanel() {

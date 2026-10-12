@@ -23,6 +23,8 @@ from .intent import TASK as INTENT_TASK, validate_with_evidence_correction, conf
 from .geography import location_status
 from .research import ResearchHunter
 from .access import linkedin_state
+from .location import geography
+from .completion import CompletionResolver
 
 CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 
@@ -75,6 +77,8 @@ class Application:
         for job in jobs:
             job['description_status'] = description_state(job, self.store)
             job['country_id']=country_of(job,markets)
+            job['geography']=geography(job,markets)
+            job['display_country_id']=job['geography']['country_id']
             job['country_status']='country stated in source' if job['country_id'] else 'country unverified'
             market=next((m for m in markets if m['id']==job['country_id']),None)
             job['location_status']=location_status(job,profile,market) if market else 'location_unknown'
@@ -139,11 +143,11 @@ class Application:
         def work():
             try:
                 function(self.operation_cancel)
-                self.operation = {'kind':kind, 'status':'completed', 'message':'Completed. Review the result.'}
+                self.operation = {'kind':kind, 'status':'completed', 'message':'Career request saved; AI research started.' if kind=='career_search' else 'Completed. Review the result.'}
             except Exception as exc:
                 from .providers import ProviderError
                 message = str(exc) if isinstance(exc, (ValueError, ProviderError)) else 'Operation failed; private data was not logged.'
-                self.operation = {'kind':kind, 'status':'canceled' if self.operation_cancel.is_set() else 'failed', 'message':message}
+                self.operation = {'kind':kind, 'status':'canceled' if self.operation_cancel.is_set() else 'failed', 'message':message,'category':getattr(exc,'category','clarification_or_validation')}
         self.operation_thread = threading.Thread(target=work, daemon=True)
         self.operation_thread.start()
 
@@ -262,7 +266,7 @@ def make_server(root, database, port=8767, skill_mode=False):
                     raise ValueError('Select an existing vacancy.')
                 if path=='/api/supplied-description' and not isinstance(data.get('description'),str):
                     raise ValueError('Paste the description for this exact vacancy.')
-                return {'run_id':DescriptionResolver(app.hunter).start(data.get('job_id') if path!='/api/complete-descriptions' else None,
+                return {'run_id':(CompletionResolver if app.v5 else DescriptionResolver)(app.hunter).start(data.get('job_id') if path!='/api/complete-descriptions' else None,
                                     data.get('description') if path=='/api/supplied-description' else None)}
             if path=='/api/confirm-description-source':
                 if search_active or operation_active or data.get('confirm')!='CONFIRM POSTING IDENTITY' or not isinstance(data.get('candidate_id'),str):
@@ -293,9 +297,10 @@ def make_server(root, database, port=8767, skill_mode=False):
                     profile.update({k:data[k] for k in ('provider','consent','linkedin_consent','secondary')})
                 app.store.set('profile',profile)
                 return {'saved':True}
-            if path in ('/api/intent-analysis','/api/intent-accept','/api/profile','/api/cv','/api/profile-accept','/api/learned','/api/learning-reset','/api/source-reset','/api/budgets','/api/feedback') and (search_active or operation_active):
+            if path in ('/api/career-search','/api/intent-analysis','/api/intent-accept','/api/profile','/api/cv','/api/profile-accept','/api/learned','/api/learning-reset','/api/source-reset','/api/budgets','/api/feedback') and (search_active or operation_active):
                 raise ValueError('Wait for or cancel the active AI operation before changing its input or source policy.')
-            if path == '/api/intent-analysis':
+            if path in ('/api/intent-analysis','/api/career-search'):
+                auto_search=path=='/api/career-search'
                 text=data.get('looking_for')
                 prior=app.store.get('profile') or {}
                 cv=app.store.get('cv_text') or prior.get('cv_text','')
@@ -310,15 +315,25 @@ def make_server(root, database, port=8767, skill_mode=False):
                 summary_edit=data.get('summary_edit','')
                 if not isinstance(summary_edit,str) or len(summary_edit)>12000:
                     raise ValueError('Keep the edited understanding within 12,000 characters.')
-                evidence_text=text+'\n'+summary_edit+'\n'+legacy_text(prior)
+                evidence_text=text if auto_search else text+'\n'+summary_edit+'\n'+legacy_text(prior)
                 def interpret(cancel):
                     ai=Provider(provider,app.root/'.private/ai')
-                    context={'cv_text':cv,'user_text':text,'edited_understanding':summary_edit,'legacy_texts':legacy_text(prior)}
-                    result=ai.run('intent',INTENT_TASK+' If an edited understanding is supplied, reconcile its changes with the original words. Do not retain contradicted preferences; keep unknowns unknown.',context,cancel=cancel)
+                    context={'cv_text':cv,'user_text':text,'edited_understanding':summary_edit,'legacy_texts':'' if auto_search else legacy_text(prior)}
+                    task=INTENT_TASK+(' V5.1 interpretation is INTERNAL: original user text is authoritative, not a generic summary. No compulsory approval step. Preserve every country-specific condition, exception, exclusion and employer priority from that text. Ask only a genuinely essential ambiguity that prevents meaningful research; all optional unknowns stay unknown.' if auto_search else ' If an edited understanding is supplied, reconcile its changes with the original words. Do not retain contradicted preferences; keep unknowns unknown.')
+                    result=ai.run('intent',task,context,cancel=cancel)
                     result=validate_with_evidence_correction(result,cv,evidence_text,lambda invalid,issues:ai.run('intent','Correct ONLY the invalid quote fields identified below, copying a verbatim contiguous passage from the original source. A geographic passage must include its country and every listed preferred/secondary place. Keep all other fields, origins, markets, constraints and preferences exactly unchanged. Never change explicit to inferred. If unsupported, do not invent evidence. No onboarding restart, tools or search.',{**context,'invalid_intent':invalid,'invalid_evidence_fields':issues},cancel=cancel,research=False))
-                    app.store.set('proposed_intent',{'intent':result,'input':raw,'evidence_text':evidence_text,'cv_text':cv,'summary_edit':summary_edit})
+                    if auto_search:
+                        if result['questions'] or not result['markets']:
+                            raise ValueError('Please clarify your career request: '+'; '.join(result['questions'] or ['Which geographic market should research cover?']))
+                        profile=confirm_intent(result,prior,cv,text)
+                        profile.update(raw);profile['objectives']=text;profile['intent_summary_edit']=''
+                        app.store.set('profile',profile);app.store.set('proposed_intent',None)
+                        app.store.preference_revision(bump=True)
+                        app.hunter.start()
+                    else:
+                        app.store.set('proposed_intent',{'intent':result,'input':raw,'evidence_text':evidence_text,'cv_text':cv,'summary_edit':summary_edit})
                     app.store.set('provider_verified:'+provider,{'at':now(),'inference':True})
-                app.async_operation('intent',interpret)
+                app.async_operation('career_search' if auto_search else 'intent',interpret)
                 return {'started':True}
             if path == '/api/intent-accept':
                 proposal=app.store.get('proposed_intent')

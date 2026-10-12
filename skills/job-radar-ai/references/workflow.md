@@ -6,7 +6,7 @@ Follow launch.md and docs/INSTALL_CODEX_DESKTOP.md for missing runtime/CLI conse
 own-account login. Never copy credentials or infer CLI readiness from Desktop login.
 
 Upload PDF/DOCX, review extracted text, enter one natural-language next-move request,
-review/edit a concise understanding, reinterpret changes and confirm before research.
+choose Search with AI without a compulsory understanding/approval screen.
 No scope/country-code/hard-requirement forms. Provenance remains internal and strict.
 
 AI web research prioritizes indexed LinkedIn vacancy links, then useful employer/public
@@ -33,3 +33,9 @@ Close workspace only when idle. Keep all private data under .private and never p
 
 V5 refuses V1–V4.1 databases. Fresh starts/deletions require explicit authorization;
 never erase another installation, restore historical data or reset cooldowns silently.
+
+V5.1: read docs/V5_1.md. Permit supported page reading alongside search, respecting
+active publisher restrictions. Investigate retained opportunities without rediscovery.
+Use verified/inferred/unknown geographic labels; only verified-country feedback teaches
+that country. Keep promising preliminary leads visible separately from full Recommended.
+Do not reset current V5 data. No compulsory summary approval.

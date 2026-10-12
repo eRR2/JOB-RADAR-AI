@@ -1,18 +1,18 @@
-# JOB-RADAR AI V5
+# JOB-RADAR AI V5.1
 
 A local AI career researcher using your existing Codex subscription. Upload your CV,
-describe your next move in one text box, review the AI understanding and begin research.
+describe your next move in one text box, choose Search with AI. Interpretation is internal; no compulsory summary approval.
 No universal profession, employers or countries. LinkedIn indexed vacancy discovery is
 the first focus; employer careers and other useful public sources remain available.
 
-V5 preview lives on [`feat/v5-ai-career-research`](https://github.com/eRR2/JOB-RADAR-AI/tree/feat/v5-ai-career-research).
+V5 preview lives on [`feat/v5-1-research-completion`](https://github.com/eRR2/JOB-RADAR-AI/tree/feat/v5-1-research-completion).
 Main still contains V1. No stable V5 Release, hosted service, API key or automatic applications.
 
 ## Start in Codex Desktop on Windows
 
 Copy this into Codex Desktop:
 
-> Review https://github.com/eRR2/JOB-RADAR-AI/tree/feat/v5-ai-career-research and prepare
+> Review https://github.com/eRR2/JOB-RADAR-AI/tree/feat/v5-1-research-completion and prepare
 > a new private Windows workspace from a reviewed exact revision. Register the bundled
 > job-radar-ai skill and open the dashboard. Ask before missing private runtime/CLI
 > downloads; help me use my own subscription login. Do not reuse another user's data
@@ -34,12 +34,12 @@ AI conducts actual public web research in meaningful, cancelable batches, within
 fifteen-minute run window and provider/source limits. Raw CV is excluded from web-enabled
 discovery: private inference first produces an anonymous professional research brief.
 Source observations establish URLs/facts; model prose cannot create retrieved text.
-Indexed links and snippets stay preliminary until exact full-description retrieval and
+Promising — Needs Verification makes useful snippet-supported leads visible. Targeted follow-up investigates retained vacancies without another discovery run. Indexed links stay preliminary until exact full-description retrieval and
 evidence-based ATS/HR evaluation. Partial progress is retained; no tiny country-split quota.
 
 Recommended, All Opportunities, dynamic country tabs, Applications and Reports retain
 observed vacancies, preliminary perspectives, source evidence, full evaluations and
-application history. Feedback belongs to the verified vacancy country; unknown locations
+application history. Geography distinguishes verified, inferred and unknown; strong city mappings permit country-view visibility without verified-country learning. Feedback belongs to the verified vacancy country; unknown or inferred locations
 stay unclassified. No Global/Scope/Required preference forms or country-code editing.
 
 Direct LinkedIn description access is separate, optional and consented. HTTP 429 respects
@@ -51,15 +51,17 @@ Set a manual/daily/weekly routine. Skill mode offers Run now / Remind later / Sk
 reopened; no Windows scheduled task or research while the PC is off.
 User data lives only under ignored `.private/`; real private data is never shipped.
 
-## Current verification limits
+## Current verification
 
-Real Codex search events found indexed LinkedIn vacancies, and the synthetic-profile
-V5 acceptance run retained Appical's Engineering Manager (People Lead) with a genuine
-preliminary management-progression assessment. It did not obtain a full description
-or prove vacancy openness. Full-description evaluation is fixture-tested.
-Claude web discovery, clean Windows VM setup and complete visual/accessibility QA remain
-unverified. Read [the precise acceptance evidence](docs/V5.md); passing tests alone is
-not a claim of complete market coverage.
+V5.1 preserved the developer's 38 V5 vacancies, CV, original career text, feedback,
+application history and original report. Actual targeted work recovered and evaluated
+one German Saab and one Dutch Sioux posting; two full descriptions, two full AI
+assessments, zero forced recommendations. Other useful preliminary leads remain visible.
+Native Codex page opening was verified. Full text is checked with controlled publisher
+retrieval because CLI event metadata does not export the complete native page body.
+Source 404/410, uncertain availability and provider failures remain accurately labeled.
+See [V5.1 evidence and limitations](docs/V5_1.md). Browser automation still cannot verify
+localhost visually, and a clean Windows VM / Claude web tools remain unverified.
 
 ## Development
 

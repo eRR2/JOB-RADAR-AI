@@ -51,7 +51,7 @@ test('bounded batch and update metadata buttons do not claim control of Codex ch
   context.capture=(path,data)=>calls.push({path,data});run('act=async(path,data)=>capture(path,data)');
   run(`state.jobs=[{id:'DE',country_id:'DE',title:'Synthetic',company:'Synthetic',application_status:'none',market_evaluations:{},feedback:[],events:[]}];`);
   const discovery=run('discover()');
-  await nodes(discovery).find(n=>n.tag==='button'&&n.text==='Complete missing descriptions').handlers.click();
+  await nodes(discovery).find(n=>n.tag==='button'&&n.text==='Investigate promising opportunities').handlers.click();
   assert.equal(calls[0].path,'/api/complete-descriptions');
   const updates=run('updatePanel()');
   assert.match(updates.text,/does not control your Codex chat/);assert.match(updates.text,/approval/);
@@ -190,16 +190,22 @@ test('clear regional conflict is retained in All jobs but excluded from Recommen
   assert.equal(run('visibleJobs().filter(recommended).length'),0);
 });
 
-test('V5 review has no technical controls and summary edits require reinterpretation',()=>{
+test('V5.1 career request directly searches without a compulsory summary approval',()=>{
   const {run}=fixture();
   run(`draft=defaultDraft();state.proposed_intent={input:{looking_for:'Explore'},intent:{summary:'Explore opportunities',preferences:[{topic:'direction',value:'Explore',scope:'',origin:'explicit',hard:false}],markets:[{id:'CA',country:'Canada',scope_type:'city',preferred:['Toronto'],secondary:[],remote:'none',relocation:false,origin:'explicit'}],questions:[]}};`);
   const page=run('intentPanel()');
   const advanced=nodes(page).find(n=>n.tag==='details'&&n.text.includes('Advanced Preferences'));
   assert.equal(advanced,undefined);
   assert.doesNotMatch(visibleNodes(page).map(n=>n.textContent||'').join(' '),/Required by me|Country code|Geographic scope|Global/);
-  const summary=nodes(page).find(n=>n.tag==='textarea'&&n.attributes['aria-label']==='Edit understood summary');
-  const confirm=nodes(page).find(n=>n.tag==='button'&&n.text==='Looks right — continue');
-  const reinterpret=nodes(page).find(n=>n.tag==='button'&&n.text==='Reinterpret my edits');
-  assert.equal(reinterpret.hidden,true);summary.handlers.input({target:{value:'Different direction'}});
-  assert.equal(confirm.disabled,true);assert.equal(reinterpret.hidden,false);
+  assert.equal(nodes(page).filter(n=>n.tag==='textarea'&&n.attributes.id==='next-move').length,1);
+  assert.ok(nodes(page).find(n=>n.tag==='button'&&n.text==='Search with AI'));
+  assert.doesNotMatch(page.text,/Looks right|Here’s what I understood|Reinterpret my edits/);
+});
+
+test('V5.1 promising inferred-country jobs are visible without becoming full recommendations',()=>{
+  const {run}=fixture();
+  run(`state.profile.markets=[{id:'FR',country:'France',locations:['Lyon']}];state.jobs=[{id:'synthetic',title:'Synthetic team lead',company:'Synthetic employer',location:'Lyon',country_id:null,display_country_id:'FR',geography:{status:'inferred'},first_seen:'2026-01-01',application_status:'none',feedback:[],events:[],market_evaluations:{},preliminary:{promising:true,explanation:'Career progression based on observed role',gaps:['Full responsibilities unknown']},source_observations:[{text:'Actual synthetic role evidence'}]}];marketTab='FR';discoverTab='promising';`);
+  assert.equal(run('visibleJobs().length'),1);assert.equal(run('visibleJobs().filter(recommended).length'),0);
+  const page=run('discover()');assert.match(page.text,/Synthetic team lead/);assert.match(page.text,/Promising/);
+  assert.match(page.text,/Actual synthetic role evidence/);assert.match(page.text,/Güncellik doğrulanmadı/);
 });

@@ -10,6 +10,7 @@ from .sources import PublicFetcher, verified_matches, RetrievalError
 from .access import linkedin_state
 from .store import now
 from .linkedin import LinkedIn, SourceError
+from .location import geography
 
 TASK = '''You are the career researcher, not a fixed scraping plan. Use real web_search now.
 Prioritize indexed LinkedIn vacancy URLs, with relevant employer careers and other public vacancy sources.
@@ -19,12 +20,16 @@ Research ONLY this market and its confirmed locations/remote exceptions. Never s
 Search diverse useful role families and refine queries intelligently. Named employers are priorities only when requested.
 Work in a meaningful research batch, then say whether further exploration is worthwhile and which avenues remain.
 The 20-entry response envelope is a batch size, NOT a total discovery quota: continue with further batches when useful.
-Use cached/supplied observations to avoid repeat work. No tools except web_search. No direct LinkedIn page opens.
+Use supported web_search search and page-open/read capabilities to investigate job-specific pages and
+original employer publications. Use cached/supplied observations to avoid repeat work.
 Never open a restricted publisher, bypass robots/authentication or retry denied sources. Search indexed material instead.
 Do not include personal names, CV passages, contacts or identifying career history in public queries.
 Every returned job URL must have been actually observed by tools. Title/company/location/country must be copied from
 available tool evidence, not guessed. Use empty strings for unknown fields. country_quote must be a verbatim source passage
 containing the stated country; a search's market or an ambiguous city is not country evidence.
+Separately infer country from a well-established, unambiguous city-country mapping when actual
+vacancy locality is observed. Label that as geography_inference, never as verified country.
+No employer-headquarters, domain-suffix or target-market inference. Ambiguity remains unknown.
 Find independent description_sources only when they are credible publications of the SAME vacancy; do not invent text.
 Do not claim full descriptions, salaries, employer facts or availability from snippets. Report limitations honestly.'''
 
@@ -44,13 +49,17 @@ def observed_job(candidate, observations):
     country=corroborated(candidate['country']) if candidate['country'].strip() and candidate['country_quote'].strip() and candidate['country_quote'] in text and re.search(r'(?<!\w)'+re.escape(candidate['country'])+r'(?!\w)',candidate['country_quote'],re.I) and (not candidate['location'].strip() or candidate['location'].casefold() in candidate['country_quote'].casefold()) else ''
     match=re.search(r'/jobs/view/(?:[^/]*-)?(\d{6,15})(?:/|$)',parsed.path) if parsed.hostname=='linkedin.com' or parsed.hostname.endswith('.linkedin.com') else None
     identity='linkedin:'+match[1] if match else 'web:'+hashlib.sha256(url.encode()).hexdigest()[:24]
-    return {'id':identity,'source_id':match[1] if match else identity,'source':'LinkedIn indexed web' if match else 'Public web research',
+    job={'id':identity,'source_id':match[1] if match else identity,'source':'LinkedIn indexed web' if match else 'Public web research',
             'url':url,'title':corroborated(candidate['title']) or sources[0].get('title','Observed opportunity'),
             'company':corroborated(candidate['company']), 'location':corroborated(candidate['location']), 'country':country,
             'country_evidence':candidate['country_quote'] if country else '', 'availability':'unknown',
             'evidence':'Observed by Codex web tool; indexed evidence does not prove vacancy openness.',
             'source_observations':[{'url':url,'text':text,'kind':'web_tool_observation','at':now()}],
             'description_status':'not_attempted','evaluation_status':'preliminary_pending'}
+    inferred=candidate.get('geography_inference',{})
+    if not country and job['location'] and inferred.get('basis')=='city_country_mapping' and inferred.get('confidence')=='strong' and re.fullmatch('[A-Z]{2}',inferred.get('country_id','')):
+        job['geography']={'status':'inferred','country_id':inferred['country_id'],'basis':'ai_city_country_mapping','evidence':job['location'],'explanation':inferred.get('explanation','')}
+    return job
 
 
 class ResearchHunter(Hunter):
@@ -75,7 +84,7 @@ class ResearchHunter(Hunter):
         def call(kind,task,data,research=False):
             if cancel.is_set():raise ProviderError('Canceled by user.')
             remaining=deadline-time.monotonic()
-            if remaining<1:raise ProviderError('Research time window reached; retained opportunities can be investigated in the next run.')
+            if remaining<1:raise ProviderError('Research time window reached; retained opportunities can be investigated in the next run.','time_window')
             return ai.run(kind,task,data,cancel=cancel,research=research,timeout=min(240,remaining))
         try:
             if not profile.get('secondary'):raise ValueError('Enable public AI web research in Privacy & connection before searching.')
@@ -125,6 +134,7 @@ class ResearchHunter(Hunter):
                             if not job[key]:job.pop(key)
                         if previous.get('description'):
                             job.pop('description_status');job.pop('evaluation_status')
+                    job['description_sources']=candidate['description_sources']
                     is_new=self.store.upsert_job(job,run_id,membership)
                     outcome['new_jobs']+=int(is_new);outcome['previously_seen']+=int(not is_new)
                     if job['id'] in outcome['job_ids']:outcome['duplicates']+=1
@@ -132,9 +142,10 @@ class ResearchHunter(Hunter):
                     stored=next(j for j in self.store.jobs() if j['id']==job['id'])
                     batch.append((stored,candidate))
                 progress('Observed vacancies saved; AI checking career direction in '+market['country'])
-                eligible=[j for j,_ in batch if not country_of(j,profile['markets']) or country_of(j,profile['markets'])==market['id']]
+                eligible=[j for j,_ in batch if geography(j,profile['markets'])['country_id'] in (None,market['id'])]
                 if eligible:
-                    preliminary=call('preliminary_v5','Assess the supplied observed title/snippet ONLY, against confirmed NEXT career direction and this country feedback. Distinguish direct, transferable, stretch and unrelated. Explain surprising opportunities and gaps. No full ATS/HR assessment, invented source facts or recommendation based on missing descriptions. Unknown geography remains unverified. Employer rejections never teach preferences.',{'profile':scoped,'feedback':self.store.feedback(market['id']),'jobs':[{**source_context(j),'source_observations':j['source_observations']} for j in eligible]})
+                    feedback=self.store.feedback(market['id']) if all(country_of(j,profile['markets'])==market['id'] for j in eligible) else []
+                    preliminary=call('preliminary_v5','Assess the supplied observed title/snippet ONLY, against confirmed NEXT career direction. Use country feedback only when vacancy country is verified. Distinguish direct, transferable, stretch and unrelated. Explain surprising opportunities and gaps. No full ATS/HR assessment, invented source facts or recommendation based on missing descriptions. Unknown geography remains unverified. Employer rejections never teach preferences.',{'profile':scoped,'feedback':feedback,'jobs':[{**source_context(j),'source_observations':j['source_observations']} for j in eligible]})
                     known={j['id'] for j in eligible}
                     if len({a['job_id'] for a in preliminary['assessments']})!=len(preliminary['assessments']) or any(a['job_id'] not in known for a in preliminary['assessments']):raise ValueError('Preliminary assessment referenced an unknown or duplicate vacancy identity.')
                     for item in preliminary['assessments']:
@@ -158,25 +169,26 @@ class ResearchHunter(Hunter):
                         except SourceError as exc:
                             outcome['sources'].append({'source':'LinkedIn direct description','status':linkedin_state(self.store)['state'],'reason':str(exc),'job_id':stored['id']})
                             outcome['warnings'].append('Direct LinkedIn description unavailable; indexed evidence retained.')
-                    if country_of(stored,profile['markets'])!=market['id']:continue
+                    if country_of(stored,profile['markets']) not in (None,market['id']):continue
                     if not stored.get('description') and stored.get('preliminary',{}).get('promising'):
                         for publication in candidate['description_sources']:
                             if time.monotonic()>=deadline or cancel.is_set():break
                             try:
-                                matches=verified_matches(stored,publication['url'],fetcher,publication['employer_url'],profile['markets'])
-                                if len(matches)!=1:continue
-                                full=matches[0]
-                                self.store.upsert_job({'id':stored['id'],'description':full['description'],'description_obtained':now(),'description_status':'available','description_source_url':full['source_url'],'description_source':{'kind':'public_verified','url':full['source_url'],'at':now(),'sha256':full['evidence']['sha256']}})
+                                from .completion import recover,freshness
+                                full=recover(stored,publication['url'],publication['employer_url'],fetcher,profile['markets'])
+                                state=freshness(full)
+                                self.store.upsert_job({'id':stored['id'],'description':full['description'],'description_obtained':now(),'description_status':'available','description_source_url':full['source_url'],'freshness':state,'location':full.get('location') or stored.get('location'),'country':full.get('country') or stored.get('country',''),'availability':'closed_banner_observed' if state['status']=='confirmed_closed' else 'open_publisher_observed' if state['status']=='confirmed_open' else stored.get('availability','unknown'),'description_source':{'kind':'public_verified','url':full['source_url'],'at':now(),'sha256':full['evidence']['sha256']}})
                                 outcome['descriptions']+=1;break
                             except RetrievalError as exc:
                                 outcome['warnings'].append('Description investigation: '+exc.status)
                     stored=next(j for j in self.store.jobs() if j['id']==job['id'])
+                    if country_of(stored,profile['markets']) not in (None,market['id']):continue
                     if stored.get('description'):
                         outcome['available_descriptions']+=1
                         prior_assessment=stored['market_evaluations'].get(market['id'])
                         if prior_assessment and not prior_assessment['content_stale'] and prior_assessment['evaluation'].get('profile_signature')==profile_signature(scoped):continue
                         progress('AI evaluating verified full description · '+market['country'])
-                        evaluation=call('evaluation',EVALUATION_TASK,{'profile':scoped,'feedback':self.store.feedback(market['id']),'jobs':[source_context(stored)]})
+                        evaluation=call('evaluation',EVALUATION_TASK,{'profile':scoped,'feedback':self.store.feedback(market['id']) if country_of(stored,profile['markets'])==market['id'] else [],'jobs':[source_context(stored)]})
                         try:
                             if len(evaluation['evaluations'])!=1:raise ValueError('Expected one exact vacancy evaluation.')
                             self.store.evaluate(stored['id'],prepare_evaluation(evaluation['evaluations'][0],stored,scoped),market['id'])
@@ -189,8 +201,10 @@ class ResearchHunter(Hunter):
                 progress('Research batch retained · '+market['country'])
             status='canceled' if cancel.is_set() else 'partial' if pending or any(o['warnings'] for o in outcomes.values()) else 'completed'
             if pending:payload['warnings'].append('Research incomplete; further avenues retained. Run again to continue with cached observations.')
+            if time.monotonic()>=deadline:payload['resource_limit']={'category':'time_window','message':'Research time window expired; observed opportunities retained.'}
         except Exception as exc:
             payload['warnings'].append(str(exc) if isinstance(exc,(ValueError,ProviderError)) else 'Research failed; observed vacancies retained.')
+            payload['provider_error']={'category':getattr(exc,'category','validation_error'),'message':payload['warnings'][-1]}
             status='canceled' if cancel.is_set() else 'partial' if payload['job_ids'] else 'failed'
         stored_jobs={j['id']:j for j in self.store.jobs()}
         for o in outcomes.values():

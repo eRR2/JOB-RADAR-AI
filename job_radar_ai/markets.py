@@ -67,6 +67,7 @@ def migrated_profile(profile):
 def market_profile(profile, market, store):
     value = {k: v for k, v in profile.items() if k not in REGIONAL and k not in ('weights', 'markets', 'market_migration','legacy_profile','intent_review_edits','intent_summary_edit')}
     value['market'] = market
+    value['authoritative_request']=profile.get('looking_for','')
     if profile.get('intent'):
         value['intent']={**profile['intent'],'markets':[m for m in profile['intent']['markets'] if m['id']==market['id']],
                          'preferences':[p for p in profile['intent']['preferences'] if not p['scope'] or p['scope']==market['id']]}
