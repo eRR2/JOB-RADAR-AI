@@ -2,7 +2,11 @@
 
 Your own AI subscription, a local career workspace, and opportunities judged by their actual responsibilities.
 
-Phase 3 preview adds **Find full description**, a bounded **Complete missing descriptions**
+Phase 4.1 preview fixes independent official-source fallback after ATS failure and focuses
+onboarding on a concise editable understanding. Technical preferences remain collapsed;
+summary changes are reinterpreted before confirmation. [Phase 4.1 evidence](docs/V2_PHASE4_1.md).
+
+Phase 3 introduced **Find full description**, a bounded **Complete missing descriptions**
 operation, independently fetched source evidence and country-specific reassessment of existing
 jobs. User-supplied descriptions are labeled. [Safe updates](docs/UPDATES.md) use exact reviewed
 GitHub Releases, the same installed workspace, verified private backups and code rollback.
@@ -17,7 +21,7 @@ in [the first-time installation guide](docs/INSTALL_CODEX_DESKTOP.md). Codex
 prepares a separate local workspace from the public source archive, registers
 the skill and opens the dashboard. No VS Code, Git, manual Python/Bun commands
 or Windows installer is required. The current V2 branch is
-[`feat/v2-phase4-ai-first-multisource`](https://github.com/eRR2/JOB-RADAR-AI/tree/feat/v2-phase4-ai-first-multisource);
+[`feat/v2-phase4-1-search-and-ux`](https://github.com/eRR2/JOB-RADAR-AI/tree/feat/v2-phase4-1-search-and-ux);
 **main still contains V1**.
 
 Missing runtimes and the optional standalone Codex CLI have separate private,
@@ -30,8 +34,8 @@ See [Phase 2.1 verification and limits](docs/V2_PHASE2_1.md).
 
 In this checkout, invoke **`$job-radar-ai`** in Codex. The skill runs the fixed local
 launcher and opens your real default browser automatically. Upload your CV and
-write what you want in your next move. Review the AI's editable interpretation,
-preference origins and regional scope, then confirm and discover. Unknown salary,
+write what you want in your next move. Review the AI's short editable understanding,
+then choose **Looks right — continue** or **Edit my preferences**. Unknown salary,
 leadership and industry stay optional; detailed controls live in Advanced Preferences.
 Your profile, actual search results, AI reasoning and feedback persist under
 ignored `.private/`; future AI runs read the same SQLite records.

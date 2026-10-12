@@ -188,6 +188,8 @@ class Hunter:
                   'sources':[{**s,'market_id':m} for m,p in outcomes.items() for s in p['sources']],
                   'description_failures':[{**f,'market_id':m} for m,p in outcomes.items() for f in p['description_failures']],
                   'report':'Independent market searches finished. Review each country outcome and remaining limitations.'}
+        if outcomes and all(p['status']=='failed' for p in outcomes.values()):
+            combined['report']='Source coverage is unavailable across the selected markets. This does not mean there are no relevant jobs. Review each country source failure.'
         for key in ('new_jobs','descriptions'):
             combined[key]=sum(p[key] for p in outcomes.values())
         combined['evaluated']=len({j for p in outcomes.values() for j in p['evaluated_ids']})
@@ -276,6 +278,8 @@ class Hunter:
                         {'role_families':plan['role_families'],'country':market['country'],'locations':query_locations(market),'scope':{k:v for k,v in (scope_for(original,market) or {}).items() if k in ('preferred','secondary','remote','relocation')}},research=True)
                     for board in located['boards']:
                         before=public_boards.fetcher.requests
+                        trace_start=len(getattr(public_boards.fetcher,'diagnostics',[]))
+                        board_info={k:board.get(k,'') for k in ('url','employer_url','query')}
                         try:
                             city=scope['preferred'][0].removesuffix(', '+market['country']) if scope and scope.get('scope_type')=='city' and scope['preferred'] else ''
                             cards=sampled(public_boards.listing({**board,'country':market['id'],'city':city}),original,market)
@@ -287,9 +291,9 @@ class Hunter:
                                 prior_descriptions[stored['id']]=bool(stored.get('description'))
                                 counters['new_jobs' if new else 'previously_seen']+=1
                                 candidates[stored['id']]=stored
-                            counters['sources'].append({'source':board['provider'],'status':'success','integration':ATS_STATUS[board['provider']],'count':len(cards),'requests':public_boards.fetcher.requests-before})
+                            counters['sources'].append({'source':board['provider'],'status':'success','integration':ATS_STATUS[board['provider']],'count':len(cards),'requests':public_boards.fetcher.requests-before,'board':board_info,'identity':'response_verified' if cards else 'not_verified','diagnostics':getattr(public_boards.fetcher,'diagnostics',[])[trace_start:]})
                         except SourceError as exc:
-                            counters['sources'].append({'source':board['provider'],'status':getattr(exc,'status','failed'),'http_status':getattr(exc,'http_status',None),'count':0,'reason':str(exc),'requests':public_boards.fetcher.requests-before,'integration':ATS_STATUS[board['provider']]})
+                            counters['sources'].append({'source':board['provider'],'status':getattr(exc,'status','failed'),'http_status':getattr(exc,'http_status',None),'count':0,'reason':str(exc),'requests':public_boards.fetcher.requests-before,'integration':ATS_STATUS[board['provider']],'board':board_info,'identity':'not_verified','diagnostics':getattr(public_boards.fetcher,'diagnostics',[])[trace_start:]})
                             counters['warnings'].append(str(exc))
                 except (ProviderError,ValueError) as exc:
                     counters['warnings'].append('Official board discovery unavailable: '+str(exc))
@@ -418,23 +422,18 @@ class Hunter:
                                 break
                         except (SourceError,ProviderError,ValueError) as recovery_error:
                             counters['sources'].append({'source':'Independent official recovery','status':getattr(recovery_error,'status','failed'),'count':0,'reason':str(recovery_error)})
-            if plan['supplementary_research'] and profile.get('secondary') and not original.get('intent_confirmed'):
+            fetcher=self.public_fetcher or public_boards.fetcher
+            if profile.get('secondary') and (plan['supplementary_research'] or not candidates or any(s.get('board') and s['status']!='success' for s in counters['sources'])) and fetcher.requests<fetcher.budget:
                 # Only professional public search terms, no CV, contact details or feedback.
-                research = call('research', 'Use real web tools to retrieve up to 3 official vacancy descriptions. Preserve exact source URL, title, company, location, verified requisition ID or empty string. Quote evidence. If inaccessible or tools absent return no jobs and explain.',
-                                {'queries': plan['research_queries'], 'role_families': plan['role_families']}, research=True)
+                research = call('research', 'Locate up to 3 independently published official job-specific employer/ATS postings within the confirmed country and locations. Prefer full descriptions. Do not revisit failed board endpoints or any stopped publisher. Never use LinkedIn. Preserve exact source URL, official employer ownership page when required, title, company, location, verified requisition ID or empty string. Quote actual evidence. If inaccessible or tools absent return no jobs and explain.',
+                                {'queries': plan['research_queries'], 'role_families': plan['role_families'],'country':market['country'] if market else '', 'locations':query_locations(market) if market else [],'attempted_boards':[s.get('board',{}).get('url') for s in counters['sources'] if s.get('board')],'stopped_publishers':[k.removeprefix('public:stop:') for k in self.store.stop_keys()]}, research=True)
                 telemetry = ai.telemetry
                 counters['research'] = {'summary': research['summary'], 'limitations': research['limitations'], 'web_calls': telemetry.get('web_calls', 0)}
-                fetcher=self.public_fetcher or PublicFetcher(self.store,cancel,budget=3)
                 accepted = 0
+                research_trace_start=len(getattr(fetcher,'diagnostics',[]))
                 for result in research['jobs']:
                     try:
-                        alternatives=retrieve_candidates(result['url'],fetcher)
-                        matching=[]
-                        for candidate in alternatives:
-                            try:
-                                matching.append(match_identity(result,candidate,original.get('markets')))
-                            except RetrievalError:
-                                pass
+                        matching=verified_matches(result,result['url'],fetcher,result.get('employer_url',''),original.get('markets'))
                         if len(matching)!=1:
                             raise RetrievalError('unverified','No unique verified public source identity.')
                         retrieved=matching[0]
@@ -442,8 +441,6 @@ class Hunter:
                             raise RetrievalError('unverified','AI research quote not found in fetched source text.')
                     except SourceError as exc:
                         counters['warnings'].append('Controlled retrieval could not verify complete source text; supplementary vacancy not imported. '+str(exc))
-                        if getattr(exc,'status','')=='blocked':
-                            break
                         continue
                     canonical=retrieved['source_url']
                     evidence={key:retrieved['evidence'][key] for key in ('url','sha256','bytes','at')}
@@ -457,7 +454,7 @@ class Hunter:
                     counters['new_jobs' if new else 'previously_seen'] += 1
                     candidates[job['id']] = descriptions[job['id']] = job
                     accepted += 1
-                counters['sources'].append({'source': 'AI web research', 'status': 'success' if accepted else 'unverified', 'count': accepted, 'reason': '; '.join(research['limitations']) or 'Verified tool retrieval required', 'at': now()})
+                counters['sources'].append({'source': 'AI web research', 'status': 'success' if accepted else 'unverified', 'count': accepted, 'reason': '; '.join(research['limitations']) or 'Verified tool retrieval required', 'at': now(),'diagnostics':getattr(fetcher,'diagnostics',[])[research_trace_start:]})
                 counters['controlled_source_requests']=fetcher.requests
             if descriptions:
                 if market and original.get('intent_confirmed'):
@@ -495,6 +492,7 @@ class Hunter:
             status = 'partial' if limited or counters['warnings'] or (candidates and not counters['evaluated']) else 'completed'
             if not success:
                 status = 'failed'
+                counters['report']='Source coverage is unavailable for this search. No conclusion about relevant vacancies can be drawn. Review the recorded source limitations.'
             self.store.set('provider_verified:' + profile['provider'], {'at': now(), 'inference': True})
             return finish('Ready to review — evidence and missing information retained',status)
         except Exception as exc:

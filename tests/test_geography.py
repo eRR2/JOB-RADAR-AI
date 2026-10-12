@@ -37,10 +37,11 @@ class GeographyTests(unittest.TestCase):
         from unittest.mock import Mock
         self.profile['legacy_profile']={'markets':[{'country':'Other','conditions':'Other salary'}]}
         self.profile['intent_review_edits']='Other-country private settings'
+        self.profile['intent_summary_edit']='Raw multi-country summary changes'
         self.profile['looking_for']='Raw multi-country compensation conditions'
         self.profile['intent']['preferences'].append({'scope':'IN','value':'Other salary','origin':'explicit','quote':'Other salary','topic':'salary','hard':False})
         scoped=market_profile(self.profile,self.market,Mock(preference_revision=lambda **kwargs:0))
-        for key in ('legacy_profile','intent_review_edits','looking_for'):self.assertNotIn(key,scoped)
+        for key in ('legacy_profile','intent_review_edits','intent_summary_edit','looking_for'):self.assertNotIn(key,scoped)
         self.assertTrue(all(p['scope'] in ('','CA') for p in scoped['intent']['preferences']))
         self.assertIn('looking_for',self.profile)
     def test_actual_location_not_query_provenance_and_no_invented_remote_or_commute(self):

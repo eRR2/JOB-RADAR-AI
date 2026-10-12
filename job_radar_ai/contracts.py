@@ -43,7 +43,7 @@ SCHEMAS = {
     'triage': obj({'detail_ids': array(string(250), 20), 'rationale': string(), 'expand_queries': array(QUERY, 2)}),
     'evaluation': obj({'evaluations': array(EVALUATION, 20), 'report': string(10000)}),
     'learning': obj({'preferences': array(obj({'text': string(1000), 'confidence': enum('tentative', 'repeated', 'explicit'), 'feedback_ids': array({'type': 'integer'}, 20)}), 20), 'explanation': string()}),
-    'research': obj({'jobs': array(obj({'url': string(2000), 'title': string(500), 'company': string(500), 'location': string(500), 'requisition_id': string(200), 'description': string(30000), 'evidence_quote': string(1500)}), 3), 'limitations': array(string(1000)), 'summary': string()}),
+    'research': obj({'jobs': array(obj({'url': string(2000), 'employer_url': string(2000), 'title': string(500), 'company': string(500), 'location': string(500), 'requisition_id': string(200), 'description': string(30000), 'evidence_quote': string(1500)}), 3), 'limitations': array(string(1000)), 'summary': string()}),
     'probe': obj({'status': enum('ready'), 'message': string(500)}),
 }
 

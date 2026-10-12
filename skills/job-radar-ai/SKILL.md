@@ -25,7 +25,9 @@ ATS discovery/recovery remains permitted. Public APIs/JobPosting text must pass 
 validation. User-supplied text is labeled and never called publisher-verified.
 
 Use the application as the persistent source of truth. Onboarding uses CV preview and
-one next-move text, followed by editable AI intent and explicit confirmation. Preserve
+one next-move text, followed by a short editable understanding and explicit confirmation.
+Reinterpret summary changes before accepting. Keep individual preferences, country fields
+and hard constraints inside collapsed Advanced Preferences. Preserve
 existing CV/history and original user texts; review legacy ambiguity before replacement.
 No universal profession, country, salary or leadership defaults. Only two essential
 clarification questions at most; optional details remain in Advanced Preferences.

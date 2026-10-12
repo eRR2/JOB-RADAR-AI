@@ -287,11 +287,14 @@ def make_server(root, database, port=8767, skill_mode=False):
                 if any(type(data.get(k,False)) is not bool for k in ('linkedin_consent','secondary')):
                     raise ValueError('Source permissions must be explicit boolean choices.')
                 raw={'looking_for':text,'provider':provider,'consent':True,'linkedin_consent':data.get('linkedin_consent',False),'secondary':data.get('secondary',False)}
-                evidence_text=text+'\n'+legacy_text(prior)
+                summary_edit=data.get('summary_edit','')
+                if not isinstance(summary_edit,str) or len(summary_edit)>12000:
+                    raise ValueError('Keep the edited understanding within 12,000 characters.')
+                evidence_text=text+'\n'+summary_edit+'\n'+legacy_text(prior)
                 def interpret(cancel):
-                    result=Provider(provider,app.root/'.private/ai').run('intent',INTENT_TASK,{'cv_text':cv,'user_text':text,'legacy_texts':legacy_text(prior)},cancel=cancel)
+                    result=Provider(provider,app.root/'.private/ai').run('intent',INTENT_TASK+' If an edited understanding is supplied, reconcile its changes with the original words. Do not retain contradicted preferences; keep unknowns unknown.',{'cv_text':cv,'user_text':text,'edited_understanding':summary_edit,'legacy_texts':legacy_text(prior)},cancel=cancel)
                     result=validate_intent(result,cv,evidence_text)
-                    app.store.set('proposed_intent',{'intent':result,'input':raw,'evidence_text':evidence_text,'cv_text':cv})
+                    app.store.set('proposed_intent',{'intent':result,'input':raw,'evidence_text':evidence_text,'cv_text':cv,'summary_edit':summary_edit})
                     app.store.set('provider_verified:'+provider,{'at':now(),'inference':True})
                 app.async_operation('intent',interpret)
                 return {'started':True}
@@ -306,6 +309,9 @@ def make_server(root, database, port=8767, skill_mode=False):
                 current_cv=app.store.get('cv_text') or prior.get('cv_text','')
                 if current_cv!=proposal['cv_text']:
                     raise ValueError('CV changed; interpret it again before confirming.')
+                reviewed=data.get('intent',proposal['intent'])
+                if not isinstance(reviewed,dict) or reviewed.get('summary')!=proposal['intent']['summary']:
+                    raise ValueError('Understanding changed; reinterpret your edits before confirming.')
                 accepted_input=data.get('input',proposal['input'])
                 if not isinstance(accepted_input,dict) or set(accepted_input)!=set(proposal['input']) or accepted_input.get('looking_for')!=proposal['input']['looking_for']:
                     raise ValueError('Next-move text changed; interpret it again before confirming.')
@@ -313,6 +319,7 @@ def make_server(root, database, port=8767, skill_mode=False):
                     raise ValueError('Confirm the current provider processing and explicit source permissions.')
                 profile=confirm_intent(data.get('intent',proposal['intent']),prior,current_cv,proposal['evidence_text'],edits)
                 profile.update(accepted_input)
+                profile['intent_summary_edit']=proposal.get('summary_edit','')
                 app.store.set('profile',profile)
                 app.store.set('proposed_intent',None)
                 app.store.preference_revision(bump=True)
@@ -322,7 +329,7 @@ def make_server(root, database, port=8767, skill_mode=False):
                 profile['cv_text'] = app.store.get('cv_text','')
                 profile['interpreted'] = (app.store.get('profile') or {}).get('interpreted')
                 prior=app.store.get('profile') or {}
-                for key in ('intent','intent_confirmed','looking_for','legacy_profile','intent_review_edits'):
+                for key in ('intent','intent_confirmed','looking_for','legacy_profile','intent_review_edits','intent_summary_edit'):
                     if key in prior:profile[key]=prior[key]
                 if prior.get('intent'):profile['assessment_policy']='evidence-v4'
                 if prior.get('intent') and any(prior.get(k)!=profile.get(k) for k in ('markets','hard_requirements','objectives')):

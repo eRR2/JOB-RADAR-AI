@@ -10,7 +10,7 @@ import sys
 import time
 from html import unescape
 from html.parser import HTMLParser
-from urllib.parse import urlsplit, urljoin
+from urllib.parse import urlsplit, urljoin, parse_qs
 from urllib.robotparser import RobotFileParser
 from .linkedin import SourceError
 from .providers import bounded_process, ProviderError
@@ -90,9 +90,9 @@ def request_public(url, max_bytes=MAX_BYTES):
         if status in (301, 302, 303, 307, 308):
             return {'redirect': response.getheader('Location', ''), 'status': status}
         if status == 404 or status == 410:
-            raise RetrievalError('unavailable', 'Verified source unavailable (HTTP ' + str(status) + ').')
+            raise RetrievalError('unavailable', 'Verified source unavailable (HTTP ' + str(status) + ').',status)
         if status != 200:
-            raise RetrievalError('failed', 'Public source request failed (HTTP ' + str(status) + '); no retry.')
+            raise RetrievalError('failed', 'Public source request failed (HTTP ' + str(status) + '); no retry.',status)
         if response.getheader('Content-Encoding', 'identity').lower() != 'identity':
             raise RetrievalError('incomplete', 'Compressed response refused; no retry.')
         length = response.getheader('Content-Length')
@@ -141,6 +141,7 @@ class PublicFetcher:
         self.robots = {}
         self.publisher_budget=publisher_budget
         self.publisher_requests={}
+        self.diagnostics=[]
 
     def get(self, url, api=False):
         origin = public_url(url).hostname
@@ -169,7 +170,14 @@ class PublicFetcher:
                     raise RetrievalError('budget_deferred','Publisher request budget reached; cached evidence remains available.')
                 self.requests += 1
                 self.publisher_requests[group]=self.publisher_requests.get(group,0)+1
-                result = self.request(current)
+                diagnostic={'endpoint':p.scheme+'://'+p.netloc+p.path,'parameters':{k:[v[:200] for v in values] for k,values in parse_qs(p.query).items() if k in ('q','country','city','limit','offset','skip','mode','details')},'at':now()}
+                self.diagnostics.append(diagnostic)
+                try:
+                    result = self.request(current)
+                    diagnostic.update(status='received',http_status=result.get('status',200))
+                except RetrievalError as exc:
+                    diagnostic.update(status=exc.status,http_status=exc.http_status)
+                    raise
                 if 'redirect' in result:
                     target = urljoin(current, result['redirect'])
                     parsed_target=public_url(target)

@@ -97,6 +97,10 @@ class Store:
             row = db.execute('SELECT value FROM settings WHERE key=?', (key,)).fetchone()
         return json.loads(row[0]) if row else default
 
+    def stop_keys(self):
+        with self.db() as db:
+            return [row[0] for row in db.execute("SELECT key FROM settings WHERE key LIKE 'public:stop:%'")]
+
     def set(self, key, value):
         with self.db() as db:
             db.execute('INSERT INTO settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', (key, json.dumps(value)))

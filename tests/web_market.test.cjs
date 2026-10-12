@@ -31,6 +31,7 @@ function fixture(){
   return {run,surfaces,context};
 }
 function nodes(root){return [root,...(root.children||[]).flatMap(nodes)];}
+function visibleNodes(root){return [root,...(root.tag==='details'&&!root.open?root.children.filter(c=>c.tag==='summary'):root.children||[]).flatMap(visibleNodes)];}
 
 test('missing description controls retain exact identity and explicit supplied-text label',async()=>{
   const {run,context}=fixture();const calls=[];
@@ -174,7 +175,7 @@ test('fresh one-text onboarding has generic geography and advanced controls rema
   const {run}=fixture();
   const page=run('state.profile=null;draft=null;onboarding()');
   assert.equal(run('defaultDraft().markets.length'),0);
-  assert.equal(nodes(page).filter(n=>n.tag==='textarea').length,1);
+  assert.equal(visibleNodes(page).filter(n=>n.tag==='textarea').length,1);
   assert.match(page.text,/What are you looking for in your next move/);
   assert.doesNotMatch(page.text,/Germany market|Netherlands market|Salary expectations/);
   const advanced=run('preferences()');
@@ -186,4 +187,18 @@ test('clear regional conflict is retained in All jobs but excluded from Recommen
   run(`state.jobs=[{id:'outside',country_id:'DE',location_status:'outside_preferred',market_evaluations:{DE:{evaluation:{recommend:true},assessment_stale:false}},application_status:'none'}];`);
   assert.equal(run('visibleJobs().length'),1);
   assert.equal(run('visibleJobs().filter(recommended).length'),0);
+});
+
+test('review focuses on summary; technical controls are collapsed and summary edits require reinterpretation',()=>{
+  const {run}=fixture();
+  run(`draft=defaultDraft();state.proposed_intent={input:{looking_for:'Explore'},intent:{summary:'Explore opportunities',preferences:[{topic:'direction',value:'Explore',scope:'',origin:'explicit',hard:false}],markets:[{id:'CA',country:'Canada',scope_type:'city',preferred:['Toronto'],secondary:[],remote:'none',relocation:false,origin:'explicit'}],questions:[]}};`);
+  const page=run('intentPanel()');
+  const advanced=nodes(page).find(n=>n.tag==='details'&&n.text.includes('Advanced Preferences'));
+  assert.ok(advanced);assert.equal(advanced.open,false);assert.match(advanced.text,/Required by me/);
+  assert.doesNotMatch(visibleNodes(page).map(n=>n.textContent||'').join(' '),/Required by me|Country code|Geographic scope|Global/);
+  const summary=nodes(page).find(n=>n.tag==='textarea'&&n.attributes['aria-label']==='Edit understood summary');
+  const confirm=nodes(page).find(n=>n.tag==='button'&&n.text==='Looks right — continue');
+  const reinterpret=nodes(page).find(n=>n.tag==='button'&&n.text==='Reinterpret my edits');
+  assert.equal(reinterpret.hidden,true);summary.handlers.input({target:{value:'Different direction'}});
+  assert.equal(confirm.disabled,true);assert.equal(reinterpret.hidden,false);
 });
