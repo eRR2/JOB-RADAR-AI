@@ -35,7 +35,7 @@ class HTTPTests(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError):self.request('/api/intent-accept',{},headers)
         for edited in ({**data,'linkedin_consent':False,'looking_for':'Changed request'},{**data,'linkedin_consent':False,'consent':False}):
             with self.assertRaises(urllib.error.HTTPError):self.request('/api/intent-accept',{'confirm':'CONFIRM SEARCH INTENT','input':edited},headers)
-        reviewed=proposal();reviewed['markets'][0]['preferred']=['Toronto','Ottawa'];reviewed['markets'][0]['quote']='Toronto, Ottawa'
+        reviewed=proposal();reviewed['markets'][0]['preferred']=['Toronto','Ottawa'];reviewed['markets'][0]['quote']='Toronto, Ottawa, Canada'
         with self.assertRaises(urllib.error.HTTPError):self.request('/api/intent-accept',{'confirm':'CONFIRM SEARCH INTENT','intent':{**reviewed,'summary':'Changed meaning'}},headers)
         with patch('job_radar_ai.server.Provider') as provider:
             provider.return_value.run.return_value=proposal()
@@ -43,7 +43,7 @@ class HTTPTests(unittest.TestCase):
             self.server.app.operation_thread.join(3)
             self.assertEqual(provider.return_value.run.call_args.args[2]['edited_understanding'],'Explore a different direction')
             self.assertEqual(store.get('profile'),old)
-        self.request('/api/intent-accept',{'confirm':'CONFIRM SEARCH INTENT','intent':reviewed,'review_edits':'Toronto, Ottawa'},headers).close()
+        self.request('/api/intent-accept',{'confirm':'CONFIRM SEARCH INTENT','intent':reviewed,'review_edits':'Toronto, Ottawa, Canada'},headers).close()
         saved=store.get('profile')
         self.assertTrue(saved['intent_confirmed']);self.assertEqual(saved['looking_for'],data['looking_for'])
         self.assertEqual(saved['intent_summary_edit'],'Explore a different direction')

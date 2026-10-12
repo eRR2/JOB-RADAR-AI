@@ -7,7 +7,7 @@ def proposal(country='Canada',code='CA',city='Toronto',text='Explore near Toront
     return {'summary':'Reviewed next move','experience':[{'text':'Transferable experience','quote':'Actual career evidence'}],
         'preferences':[{'topic':'direction','value':'Explore','scope':'','origin':'explicit','quote':'Explore','hard':False},
                        {'topic':'compensation','value':'','scope':'','origin':'unknown','quote':'','hard':False}],
-        'markets':[{'id':code,'country':country,'scope_type':'city','preferred':[city],'secondary':[],'remote':'none','relocation':False,'origin':'explicit','quote':city}],
+        'markets':[{'id':code,'country':country,'scope_type':'city','preferred':[city],'secondary':[],'remote':'none','relocation':False,'origin':'explicit','quote':city+', '+country}],
         'questions':[]}
 
 

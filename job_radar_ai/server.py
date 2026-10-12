@@ -19,7 +19,7 @@ from .markets import market_profile, country_of, REGIONAL
 from .recovery import DescriptionResolver, description_state
 from .updates import check_release, version
 from .sources import PublicFetcher
-from .intent import TASK as INTENT_TASK, validate_intent, confirm_intent, legacy_text
+from .intent import TASK as INTENT_TASK, validate_with_evidence_correction, confirm_intent, legacy_text
 from .geography import location_status
 
 CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
@@ -292,8 +292,10 @@ def make_server(root, database, port=8767, skill_mode=False):
                     raise ValueError('Keep the edited understanding within 12,000 characters.')
                 evidence_text=text+'\n'+summary_edit+'\n'+legacy_text(prior)
                 def interpret(cancel):
-                    result=Provider(provider,app.root/'.private/ai').run('intent',INTENT_TASK+' If an edited understanding is supplied, reconcile its changes with the original words. Do not retain contradicted preferences; keep unknowns unknown.',{'cv_text':cv,'user_text':text,'edited_understanding':summary_edit,'legacy_texts':legacy_text(prior)},cancel=cancel)
-                    result=validate_intent(result,cv,evidence_text)
+                    ai=Provider(provider,app.root/'.private/ai')
+                    context={'cv_text':cv,'user_text':text,'edited_understanding':summary_edit,'legacy_texts':legacy_text(prior)}
+                    result=ai.run('intent',INTENT_TASK+' If an edited understanding is supplied, reconcile its changes with the original words. Do not retain contradicted preferences; keep unknowns unknown.',context,cancel=cancel)
+                    result=validate_with_evidence_correction(result,cv,evidence_text,lambda invalid,issues:ai.run('intent','Correct ONLY the invalid quote fields identified below, copying a verbatim contiguous passage from the original source. A geographic passage must include its country and every listed preferred/secondary place. Keep all other fields, origins, markets, constraints and preferences exactly unchanged. Never change explicit to inferred. If unsupported, do not invent evidence. No onboarding restart, tools or search.',{**context,'invalid_intent':invalid,'invalid_evidence_fields':issues},cancel=cancel,research=False))
                     app.store.set('proposed_intent',{'intent':result,'input':raw,'evidence_text':evidence_text,'cv_text':cv,'summary_edit':summary_edit})
                     app.store.set('provider_verified:'+provider,{'at':now(),'inference':True})
                 app.async_operation('intent',interpret)

@@ -58,3 +58,11 @@ Actual browser/onboarding interaction remains unverified; HTTP and DOM tests are
 claimed as visual QA. The developer database/CV have a consistent before-backup and
 all-table/schema/CV fingerprint checks. Private test evidence is excluded from Git.
 Staged files/history privacy scanning is required before publication.
+
+Onboarding evidence hotfix: quotes are verbatim contiguous source passages. Geographic
+passages must support their country and all preferred/secondary places without mixing
+another proposed country. One targeted correction may change invalid quotes only;
+preferences, origins and constraints remain fixed. Persistent errors identify country
+and validation category without exposing source text. Three new multi-country mocked
+regressions plus relevant existing intent/HTTP/geography tests passed (25 total).
+No live provider, ATS or LinkedIn request was made for this hotfix verification.
