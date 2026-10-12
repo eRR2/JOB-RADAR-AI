@@ -1,11 +1,13 @@
 """Description recovery for existing identities, sharing the Hunter run gate."""
 import threading
-from .sources import PublicFetcher, RetrievalError, retrieve_candidates, match_identity
+from .sources import PublicFetcher, RetrievalError, verified_matches, match_identity
 from .linkedin import LinkedIn, SourceError
 from .providers import Provider, ProviderError
 from .markets import country_of, market_profile
 from .hunter import EVALUATION_TASK, prepare_evaluation, source_context, DEFAULT_BUDGETS
 from .store import now
+import hashlib
+import re
 
 
 def description_state(job, store):
@@ -35,7 +37,7 @@ class DescriptionResolver:
         self.hunter, self.store, self.root = hunter, hunter.store, hunter.root
         self.ai, self.linkedin, self.fetcher = ai, linkedin, fetcher
 
-    def start(self, job_id=None, supplied=None):
+    def start(self, job_id=None, supplied=None, selection=None):
         with self.hunter.lock:
             profile = self.store.get('profile') or {}
             if not profile.get('consent'):
@@ -52,19 +54,21 @@ class DescriptionResolver:
             if supplied is not None:
                 if not job_id or not isinstance(supplied, str) or not 100 <= len(supplied.strip()) <= 60000:
                     raise ValueError('Supply 100–60,000 characters for one existing vacancy.')
+            if selection is not None and (not job_id or not isinstance(selection,str) or selection not in {c['candidate_id'] for c in jobs[0].get('description_candidates',[])}):
+                raise ValueError('Confirm a retained verified candidate for this exact vacancy.')
             run_id = self.store.start_run(profile['provider'])
             if run_id is None:
                 return None
             self.hunter.cancel = threading.Event()
-            self.hunter.thread = threading.Thread(target=self.execute, args=(run_id, jobs, self.hunter.cancel, supplied), daemon=True)
+            self.hunter.thread = threading.Thread(target=self.execute, args=(run_id, jobs, self.hunter.cancel, supplied, selection), daemon=True)
             self.hunter.thread.start()
             return run_id
 
-    def execute(self, run_id, jobs, cancel, supplied=None):
+    def execute(self, run_id, jobs, cancel, supplied=None, selection=None):
         profile = self.store.get('profile') or {}
         budgets = self.store.get('budgets', DEFAULT_BUDGETS)
         source = self.linkedin or LinkedIn(self.root, self.store, cancel, budgets)
-        fetcher = self.fetcher or PublicFetcher(self.store, cancel, budget=min(16, budgets['requests']))
+        fetcher = self.fetcher or PublicFetcher(self.store, cancel, budget=min(16, budgets['requests']),publisher_budget=4)
         ai = self.ai
         metrics = {key: 0 for key in ('attempted', 'recovered', 'unavailable', 'blocked', 'evaluated', 'remaining')}
         metrics['remaining']=sum(not j.get('description') for j in jobs)
@@ -81,13 +85,24 @@ class DescriptionResolver:
                 evaluated=False
                 if job.get('description'):
                     candidate = job
+                elif selection is not None:
+                    chosen=next(c for c in job.get('description_candidates',[]) if c['candidate_id']==selection)
+                    full=match_identity(job,chosen['posting'],profile.get('markets'))
+                    ev=full['evidence']
+                    evidence={k:ev[k] for k in ('url','sha256','bytes','at')}
+                    evidence.update({'kind':'public_verified','posting_url':full['source_url'],'identity':'User confirmed an ambiguous cross-source association; fetched source text retained.'})
+                    self.save_description(job,full['description'],evidence,run_id)
+                    self.store.upsert_job({'id':job['id'],'description_candidates':[]},run_id)
+                    candidate=next(j for j in self.store.jobs() if j['id']==job['id'])
                 elif supplied is not None:
                     self.save_description(job, supplied.strip(), {'kind': 'user_supplied', 'url': '', 'at': now(),
                                           'identity': 'User associated this text; publisher retrieval unverified.'}, run_id)
                     candidate = next(j for j in self.store.jobs() if j['id'] == job['id'])
                 else:
                     cached = self.store.cached('linkedin:detail:' + job.get('source_id', ''), 86400)
-                    if job.get('source_id') and (cached or (profile.get('linkedin_consent') and job.get('description_status')!='blocked')):
+                    li_stopped=bool(self.store.get('linkedin_stop') or self.store.get('linkedin_pending') or (job['id'].startswith('linkedin:') and job.get('description_status')=='blocked'))
+                    if job['id'].startswith('linkedin:') and job.get('source_id') and (cached or (profile.get('linkedin_consent') and not li_stopped)):
+                        requests_before=source.requests
                         try:
                             if source.requests >= min(budgets['details'], budgets['requests']) and not cached:
                                 raise RetrievalError('budget_deferred', 'LinkedIn detail budget reached; detail not attempted.')
@@ -102,26 +117,23 @@ class DescriptionResolver:
                             candidate = next(j for j in self.store.jobs() if j['id'] == job['id'])
                         except SourceError as exc:
                             status = getattr(exc, 'status', None) or ('blocked' if self.store.get('linkedin_stop') or self.store.get('linkedin_pending') else 'budget_deferred' if 'budget' in str(exc).lower() else 'incomplete' if 'description' in str(exc).lower() else 'failed')
-                            attempts.append({'source': 'LinkedIn', 'status': status, 'reason': str(exc)})
-                    # A persisted LinkedIn stop is not permission to find a substitute
-                    # route for the same vacancy. Cached and user text remain usable.
-                    if not candidate and (self.store.get('linkedin_stop') or self.store.get('linkedin_pending') or job.get('description_status')=='blocked'):
-                        attempts.append({'source': 'Official sources', 'status': 'blocked', 'reason': 'Persisted LinkedIn stop; no alternative-source request attempted.'})
-                    elif not candidate and profile.get('secondary'):
+                            sent=source.requests>requests_before
+                            http=re.search(r'\b(401|403|406|429|999)\b',str(exc)) if sent else None
+                            attempts.append({'source': 'LinkedIn', 'status': status, 'reason': str(exc),'request_sent':sent,'http_status':int(http.group(1)) if http else None})
+                    if not candidate and li_stopped:
+                        attempts.append({'source':'LinkedIn','status':'blocked_shared_stop','reason':'Persisted LinkedIn stop; no LinkedIn request sent. Independent official publication remains permitted.','request_sent':False})
+                    if not candidate and profile.get('secondary'):
                         ai = ai or Provider(profile['provider'], self.root / '.private/ai')
                         try:
-                            located = ai.run('resolve', 'Find up to two corresponding official employer posting URLs or documented Greenhouse/Lever/Ashby postings. Never invent text. Exact employer, title, locality, country and requisition if known must correspond. Supply employer_url for public boards; do not retry denied sources.',
+                            located = ai.run('resolve', 'Find up to two corresponding official employer posting URLs or documented Greenhouse/Lever/Ashby/SmartRecruiters/Workable postings. Never invent text. Exact employer, title, locality, country and requisition if known must correspond. Supply employer_url for public boards; do not retry denied sources.',
                                             {'job': {k: job.get(k) for k in ('title', 'company', 'location', 'url', 'requisition_id')},
                                              'stopped_hosts': [a['source'] for a in attempts if a['status'] == 'blocked']}, research=True, cancel=cancel)
                             for link in located['sources']:
+                                requests_before=fetcher.requests
                                 try:
-                                    options = retrieve_candidates(link['url'], fetcher, link['employer_url'])
-                                    matching = []
-                                    for option in options:
-                                        try:
-                                            matching.append(match_identity(job, option, profile.get('markets')))
-                                        except RetrievalError:
-                                            pass
+                                    matching=verified_matches(job,link['url'],fetcher,link['employer_url'],profile.get('markets'))
+                                    if len(matching)>1:
+                                        self.store.upsert_job({'id':job['id'],'description_candidates':[{'candidate_id':hashlib.sha256((m['source_url']+'\n'+m.get('requisition_id','')+'\n'+m['description']).encode()).hexdigest(),'url':m['source_url'],'company':m['company'],'title':m['title'],'location':m['location'],'requisition_id':m.get('requisition_id',''),'posting':m} for m in matching[:2]]},run_id)
                                     if len(matching) != 1:
                                         raise RetrievalError('unverified', 'No unique verified employer/title/country/locality/requisition match; source text not associated.')
                                     full = matching[0]
@@ -133,7 +145,7 @@ class DescriptionResolver:
                                     candidate = next(j for j in self.store.jobs() if j['id'] == job['id'])
                                     break
                                 except RetrievalError as exc:
-                                    attempts.append({'source': link['url'], 'status': exc.status, 'reason': str(exc)})
+                                    attempts.append({'source': link['url'], 'status': exc.status, 'reason': str(exc),'request_sent':fetcher.requests>requests_before,'http_status':exc.http_status})
                                     if exc.status == 'blocked':
                                         break
                         except (ProviderError,ValueError) as exc:
@@ -162,9 +174,9 @@ class DescriptionResolver:
                         payload['warnings'].append(str(exc))
                 else:
                     states = [a['status'] for a in attempts]
-                    status = next((s for s in ('blocked', 'incomplete', 'unavailable', 'unverified', 'failed', 'budget_deferred') if s in states), 'not_attempted')
+                    status = next((s for s in ('blocked', 'incomplete', 'unavailable', 'unverified', 'failed', 'budget_deferred','blocked_shared_stop') if s in states), 'not_attempted')
                     self.store.upsert_job({'id': job['id'], 'description_status': status, 'description_attempts': attempts, 'description_checked': now()}, run_id)
-                    metrics['blocked' if status == 'blocked' else 'unavailable'] += 1
+                    metrics['blocked' if status in ('blocked','blocked_shared_stop') else 'unavailable'] += 1
                 payload['outcomes'].append({'job_id':job['id'],'country_id':country_of(job,profile.get('markets',[])),
                                             'status':candidate.get('description_status','available') if candidate else status,
                                             'recovered':bool(candidate and not job.get('description')),'available':bool(candidate),'evaluated':evaluated})
@@ -175,6 +187,9 @@ class DescriptionResolver:
         metrics['remaining'] = sum(not j.get('description') for j in self.store.jobs() if j['id'] in payload['job_ids'])
         payload.update({'descriptions': metrics['recovered'], 'evaluated': metrics['evaluated'], 'requests': source.requests + fetcher.requests,
                         'cache_hits': source.cache_hits + fetcher.cache_hits, 'report': 'Description recovery: verified retrieval and user-supplied text are labeled separately.'})
+        payload['shared_stop_skips']=sum(a.get('status')=='blocked_shared_stop' for a in payload['sources'])
+        payload['http_denials']=sum(a.get('http_status') in (401,403,406,429,999) for a in payload['sources'])
+        payload['status_counts']={status:sum(o['status']==status for o in payload['outcomes']) for status in ('not_attempted','budget_deferred','blocked','blocked_shared_stop','unavailable','incomplete','unverified','public_verified','linkedin','user_supplied')}
         status = 'canceled' if cancel.is_set() else 'partial' if metrics['remaining'] or payload['warnings'] else 'completed'
         self.store.update_run(run_id, 'Description recovery finished', payload, status)
 

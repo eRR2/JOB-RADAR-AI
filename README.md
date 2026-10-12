@@ -17,7 +17,7 @@ in [the first-time installation guide](docs/INSTALL_CODEX_DESKTOP.md). Codex
 prepares a separate local workspace from the public source archive, registers
 the skill and opens the dashboard. No VS Code, Git, manual Python/Bun commands
 or Windows installer is required. The current V2 branch is
-[`feat/v2-phase3-recovery-updates`](https://github.com/eRR2/JOB-RADAR-AI/tree/feat/v2-phase3-recovery-updates);
+[`feat/v2-phase4-ai-first-multisource`](https://github.com/eRR2/JOB-RADAR-AI/tree/feat/v2-phase4-ai-first-multisource);
 **main still contains V1**.
 
 Missing runtimes and the optional standalone Codex CLI have separate private,
@@ -30,7 +30,9 @@ See [Phase 2.1 verification and limits](docs/V2_PHASE2_1.md).
 
 In this checkout, invoke **`$job-radar-ai`** in Codex. The skill runs the fixed local
 launcher and opens your real default browser automatically. Upload your CV and
-set career priorities, location and daily/weekly/manual frequency in onboarding.
+write what you want in your next move. Review the AI's editable interpretation,
+preference origins and regional scope, then confirm and discover. Unknown salary,
+leadership and industry stay optional; detailed controls live in Advanced Preferences.
 Your profile, actual search results, AI reasoning and feedback persist under
 ignored `.private/`; future AI runs read the same SQLite records.
 
@@ -85,7 +87,17 @@ Guest endpoints are unsupported and automated use can conflict with LinkedIn ter
 
 Defaults are 3 dynamically chosen searches, one page per query, 5 selected descriptions, and at most 8 network requests with at least 5 seconds spacing persisted across runs. Preferences exposes bounded changes. Successful searches cache for 2 hours, descriptions for 24 hours; cache reads do not extend freshness. No automatic retries are made. Restrictions, CAPTCHA/auth walls, redirects and unknown request extent after timeout/interruption persist a stop. Review the source stop explicitly; resetting it is not permission to bypass or retry access denial. Search all splits these caps fairly between countries using one shared transport; it never multiplies the global LinkedIn request budget.
 
-Supplementary official-careers/ATS research is optional and uses the chosen provider's real web tools to locate sources. Phase 3 retrieves actual public text through a bounded HTTPS fetcher, documented Greenhouse/Lever/Ashby APIs or JobPosting structured data. Full descriptions are accepted only after exact employer/title/country/locality and known requisition checks; supplementary research quotes must also occur in the fetched text. Search/model prose and provider web activity alone never prove retrieval. Restricted, ambiguous or incomplete sources remain visibly unverified. LinkedIn full-description analysis uses its existing integration independently; no paid search API is required. See [source coverage and live evidence](docs/V2_PHASE3.md).
+Independent official ATS discovery uses dynamically located employer boards and actual
+bounded public responses. Greenhouse, Lever/EU, Ashby, SmartRecruiters and Workable have
+documented adapters; only SmartRecruiters has Phase 4 live retrieval/evaluation evidence,
+and the others are labeled experimental. One search shares up to 8 controlled public
+requests (also bounded by the user's request setting), with at most 4 per publisher;
+cached pages remain available for 24 hours. LinkedIn retains its own existing budget,
+spacing and stop. A LinkedIn stop does not disable independent employer publication;
+a denied ATS publisher's own routes all remain stopped. Exact identity, actual location
+and full source text gate recovery and the proper country assessment. Ambiguous recovery
+requires confirmation; model prose never becomes a fetched description. See
+[Phase 4 evidence and limitations](docs/V2_PHASE4.md).
 
 ## V1 scheduling (legacy launcher only)
 

@@ -62,6 +62,23 @@ class NoDetail:
 
 
 class RecoveryTests(unittest.TestCase):
+    def test_one_actual_linkedin_denial_is_separate_from_later_shared_stop_skips(self):
+        from job_radar_ai.linkedin import SourceError
+        class Denied:
+            requests=cache_hits=0
+            def detail(source,_):
+                source.requests+=1
+                self.store.set('linkedin_stop','HTTP 429 access_restricted')
+                raise SourceError('HTTP 429 access_restricted')
+        second={**self.job,'id':'linkedin:654321','source_id':'654321','url':'https://www.linkedin.com/jobs/view/654321'}
+        self.store.upsert_job(second)
+        profile=self.store.get('profile');profile['secondary']=False;self.store.set('profile',profile)
+        run=self.store.start_run('codex')
+        source=Denied()
+        DescriptionResolver(Hunter(self.root,self.store),FixtureAI(),source,FixtureFetcher(self.store,{})).execute(run,self.store.jobs(),threading.Event())
+        payload=self.store.runs()[0]['payload']
+        self.assertEqual(source.requests,1);self.assertEqual(payload['http_denials'],1)
+        self.assertEqual(payload['shared_stop_skips'],1)
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name); self.store = Store(self.root / 'state.sqlite3')
@@ -112,16 +129,25 @@ class RecoveryTests(unittest.TestCase):
         job, run, _, _ = self.resolve(FixtureFetcher(self.store, {URL:page(body)}))
         self.assertFalse(job.get('description')); self.assertEqual(job['description_status'], 'unverified')
         self.assertEqual(run['payload']['metrics']['remaining'],1)
+        self.assertEqual(len(job['description_candidates']),2)
+        selection=job['description_candidates'][0]['candidate_id']
+        followup=self.store.start_run('codex');fetcher=FixtureFetcher(self.store,{})
+        DescriptionResolver(Hunter(self.root,self.store),FixtureAI(),NoDetail(),fetcher).execute(followup,[job],threading.Event(),selection=selection)
+        confirmed=self.store.jobs()[0]
+        self.assertEqual(confirmed['description_status'],'public_verified');self.assertEqual(fetcher.requests,0)
+        self.assertEqual(confirmed['url'],self.job['url']);self.assertEqual(confirmed['application_status'],'saved')
 
     def test_model_claim_without_real_source_description_cannot_be_imported(self):
         job, _, _, _ = self.resolve(FixtureFetcher(self.store,{URL:page('No structured source text')}))
         self.assertFalse(job.get('description')); self.assertFalse(job['market_evaluations'])
 
-    def test_persisted_linkedin_stop_prevents_detail_and_alternative_network(self):
+    def test_persisted_linkedin_stop_blocks_linkedin_but_permits_independent_employer(self):
         self.store.set('linkedin_stop','Synthetic access denial')
         job, run, ai, fetcher = self.resolve()
-        self.assertEqual(fetcher.requests,0); self.assertEqual(ai.calls,[])
-        self.assertEqual(job['description_status'],'blocked'); self.assertEqual(run['payload']['metrics']['blocked'],1)
+        self.assertEqual(fetcher.requests,1);self.assertEqual([k for k,_ in ai.calls],['resolve','evaluation'])
+        self.assertEqual(job['description_status'],'public_verified');self.assertEqual(run['payload']['metrics']['recovered'],1)
+        self.assertEqual(run['payload']['http_denials'],0);self.assertEqual(run['payload']['shared_stop_skips'],1)
+        self.assertEqual(self.store.get('linkedin_stop'),'Synthetic access denial')
 
     def test_user_supplied_is_labeled_and_evaluated_without_source_fetch(self):
         self.store.set('linkedin_stop','Synthetic access denial')
@@ -132,7 +158,14 @@ class RecoveryTests(unittest.TestCase):
     def test_prior_vacancy_access_denial_is_not_automatically_retried(self):
         self.store.upsert_job({'id':self.job['id'],'description_status':'blocked'})
         job, _, ai, fetcher=self.resolve()
-        self.assertFalse(job.get('description'));self.assertEqual(fetcher.requests,0);self.assertEqual(ai.calls,[])
+        self.assertTrue(job.get('description'));self.assertEqual(fetcher.requests,1)
+        self.assertEqual([k for k,_ in ai.calls],['resolve','evaluation'])
+    def test_denied_employer_cannot_be_retried_when_linkedin_is_also_stopped(self):
+        self.store.set('linkedin_stop','Synthetic denial');self.store.set('public:stop:employer.example','Synthetic employer denial')
+        job,run,ai,fetcher=self.resolve()
+        self.assertFalse(job.get('description'));self.assertEqual(fetcher.requests,0)
+        self.assertEqual([k for k,_ in ai.calls],['resolve'])
+        self.assertEqual(run['payload']['http_denials'],0);self.assertEqual(run['payload']['shared_stop_skips'],2)
 
     def test_netherlands_supplied_text_cannot_receive_german_evaluation(self):
         self.store.upsert_job({'id':self.job['id'],'location':'Amsterdam, Netherlands'})

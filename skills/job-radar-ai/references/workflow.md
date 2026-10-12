@@ -6,7 +6,14 @@ Use the independent MIT repository https://github.com/eRR2/JOB-RADAR-AI. Preserv
 
 ## Career profile
 
-Use Preferences/onboarding: upload a readable text PDF or DOCX, enter natural-language global objectives and independent country locations, languages and conditions, and put non-negotiable requirements on separate lines. Let the selected AI propose an evidence-based profile; the user reviews and edits the summary before acceptance. Ask only the proposed necessary follow-up questions. Keep unknown facts unknown. CV contact redaction is best effort; show the extracted-text preview and cloud-processing disclosure.
+Use Preferences/onboarding: upload a readable text PDF or DOCX and preview extraction,
+then enter the next-move request in one large text field. The selected subscription AI
+proposes an editable intent with exact CV evidence, explicit/CV/inferred/unknown preference
+origins and proposed markets/regions. Confirm before discovery. Do not require salary,
+leadership or a fixed industry; at most two essential questions. Existing CV and original
+settings remain preserved, including a legacy snapshot after reviewed replacement.
+Advanced Preferences is optional. CV contact redaction is best effort; show the extracted
+preview and cloud-processing disclosure.
 
 ## Dynamic discovery
 

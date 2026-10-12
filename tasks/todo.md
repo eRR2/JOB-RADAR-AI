@@ -54,3 +54,14 @@
 - [x] Synthetic source/update/security/privacy regressions and actual in-app browser click verification.
 - [ ] First stable Release/tag after separate owner approval, exact asset/commit/SHA publication and real second-PC update smoke test.
 - [ ] Clean Windows VM, complete accessibility audit, live Claude and live public ATS API coverage beyond the approved employer JobPosting test.
+
+## V2 Phase 4
+
+- [x] One-text reviewed intent, provenance, no universal career/geography defaults and preserved legacy texts.
+- [x] Confirmed city/region scope, bounded correction, actual location gates and country-isolated inference.
+- [x] Five documented bounded ATS adapters; SmartRecruiters live evidence, other adapters visibly experimental.
+- [x] Independent publisher stops, exact recovery/ambiguous confirmation, source observations and progressive retrieval.
+- [x] Approved private-copy trial: three new full descriptions and three real Codex assessments, five HTTPS and zero LinkedIn requests; no new recommendations claimed.
+- [x] Actual fresh/upgrade managed workspace launch with preserved private state and skill binding; no new downloads.
+- [ ] Actual browser QA: Chrome blocks local test page; clean Windows VM/Desktop selector/second-PC upgrade and live Claude remain unverified.
+- [ ] Native optional Bun development audit needs an upstream lockfile; zero runtime dependencies were added.

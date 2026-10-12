@@ -19,6 +19,8 @@ from .markets import market_profile, country_of, REGIONAL
 from .recovery import DescriptionResolver, description_state
 from .updates import check_release, version
 from .sources import PublicFetcher
+from .intent import TASK as INTENT_TASK, validate_intent, confirm_intent, legacy_text
+from .geography import location_status
 
 CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 
@@ -71,6 +73,8 @@ class Application:
             job['description_status'] = description_state(job, self.store)
             job['country_id']=country_of(job,markets)
             job['country_status']='country stated in source' if job['country_id'] else 'country unverified'
+            market=next((m for m in markets if m['id']==job['country_id']),None)
+            job['location_status']=location_status(job,profile,market) if market else 'location_unknown'
             for key,item in job['market_evaluations'].items():
                 market=next((m for m in markets if m['id']==key),None)
                 item['assessment_stale']=bool(item['content_stale'] or not market or item['evaluation'].get('profile_signature')!=profile_signature(market_profile(profile,market,self.store)))
@@ -78,7 +82,8 @@ class Application:
         market_state={m['id']:{'learned':self.store.get('learned:'+m['id'],[]),'learning_explanation':self.store.get('learning_explanation:'+m['id'],''), 'revision':self.store.preference_revision(market_id=m['id'])} for m in markets}
         return {'csrf': self.csrf, 'profile': profile, 'jobs': jobs, 'runs': self.store.runs(),
                 'providers': self.providers(), 'cv': {'text':self.store.get('cv_text',''), 'filename':self.store.get('cv_filename')},
-                'proposed_profile': self.store.get('proposed_profile'), 'learned': self.store.get('learned', []),
+                'proposed_profile': self.store.get('proposed_profile'), 'proposed_intent':self.store.get('proposed_intent'),
+                'intent_review_required':bool(profile and not profile.get('intent_confirmed')), 'learned': self.store.get('learned', []),
                 'learning_explanation':self.store.get('learning_explanation',''), 'learning_paused':self.store.get('learning_paused',False),
                 'market_state':market_state, 'global_learned':self.store.get('learned:global',[]),
                 'budgets':self.store.get('budgets',DEFAULT_BUDGETS), 'linkedin_stop':self.store.get('linkedin_stop'),
@@ -255,6 +260,10 @@ def make_server(root, database, port=8767, skill_mode=False):
                     raise ValueError('Paste the description for this exact vacancy.')
                 return {'run_id':DescriptionResolver(app.hunter).start(data.get('job_id') if path!='/api/complete-descriptions' else None,
                                     data.get('description') if path=='/api/supplied-description' else None)}
+            if path=='/api/confirm-description-source':
+                if search_active or operation_active or data.get('confirm')!='CONFIRM POSTING IDENTITY' or not isinstance(data.get('candidate_id'),str):
+                    raise ValueError('Finish active operations and explicitly confirm this ambiguous posting association.')
+                return {'run_id':DescriptionResolver(app.hunter).start(data.get('job_id'),selection=data.get('candidate_id'))}
             if path == '/api/catchup':
                 return app.catchup_action(data)
             if path == '/api/close' and app.skill_mode:
@@ -264,13 +273,60 @@ def make_server(root, database, port=8767, skill_mode=False):
                     raise ValueError('Wait for the bounded public version check before closing.')
                 threading.Thread(target=server.shutdown, daemon=True).start()
                 return {'message':'Workspace closed. Your private data is saved.'}
-            if path in ('/api/profile','/api/cv','/api/profile-accept','/api/learned','/api/learning-reset','/api/source-reset','/api/budgets','/api/feedback') and (search_active or operation_active):
+            if path in ('/api/intent-analysis','/api/intent-accept','/api/profile','/api/cv','/api/profile-accept','/api/learned','/api/learning-reset','/api/source-reset','/api/budgets','/api/feedback') and (search_active or operation_active):
                 raise ValueError('Wait for or cancel the active AI operation before changing its input or source policy.')
+            if path == '/api/intent-analysis':
+                text=data.get('looking_for')
+                prior=app.store.get('profile') or {}
+                cv=app.store.get('cv_text') or prior.get('cv_text','')
+                if not isinstance(text,str) or not text.strip() or len(text)>12000 or len(cv)<30:
+                    raise ValueError('Review your existing CV and describe your next move in one text field.')
+                provider=data.get('provider',prior.get('provider'))
+                if provider not in ('codex','claude') or data.get('consent') is not True:
+                    raise ValueError('Choose an AI provider and confirm career-context processing.')
+                if any(type(data.get(k,False)) is not bool for k in ('linkedin_consent','secondary')):
+                    raise ValueError('Source permissions must be explicit boolean choices.')
+                raw={'looking_for':text,'provider':provider,'consent':True,'linkedin_consent':data.get('linkedin_consent',False),'secondary':data.get('secondary',False)}
+                evidence_text=text+'\n'+legacy_text(prior)
+                def interpret(cancel):
+                    result=Provider(provider,app.root/'.private/ai').run('intent',INTENT_TASK,{'cv_text':cv,'user_text':text,'legacy_texts':legacy_text(prior)},cancel=cancel)
+                    result=validate_intent(result,cv,evidence_text)
+                    app.store.set('proposed_intent',{'intent':result,'input':raw,'evidence_text':evidence_text,'cv_text':cv})
+                    app.store.set('provider_verified:'+provider,{'at':now(),'inference':True})
+                app.async_operation('intent',interpret)
+                return {'started':True}
+            if path == '/api/intent-accept':
+                proposal=app.store.get('proposed_intent')
+                if not proposal or data.get('confirm')!='CONFIRM SEARCH INTENT':
+                    raise ValueError('Review and explicitly confirm the proposed intent first.')
+                edits=data.get('review_edits','')
+                if not isinstance(edits,str) or len(edits)>12000:
+                    raise ValueError('Keep review edits within 12,000 characters.')
+                prior=app.store.get('profile') or {}
+                current_cv=app.store.get('cv_text') or prior.get('cv_text','')
+                if current_cv!=proposal['cv_text']:
+                    raise ValueError('CV changed; interpret it again before confirming.')
+                accepted_input=data.get('input',proposal['input'])
+                if not isinstance(accepted_input,dict) or set(accepted_input)!=set(proposal['input']) or accepted_input.get('looking_for')!=proposal['input']['looking_for']:
+                    raise ValueError('Next-move text changed; interpret it again before confirming.')
+                if accepted_input.get('provider') not in ('codex','claude') or accepted_input.get('consent') is not True or any(type(accepted_input.get(k)) is not bool for k in ('linkedin_consent','secondary')):
+                    raise ValueError('Confirm the current provider processing and explicit source permissions.')
+                profile=confirm_intent(data.get('intent',proposal['intent']),prior,current_cv,proposal['evidence_text'],edits)
+                profile.update(accepted_input)
+                app.store.set('profile',profile)
+                app.store.set('proposed_intent',None)
+                app.store.preference_revision(bump=True)
+                return {'saved':True}
             if path == '/api/profile':
                 profile = validate_profile(data)
                 profile['cv_text'] = app.store.get('cv_text','')
                 profile['interpreted'] = (app.store.get('profile') or {}).get('interpreted')
                 prior=app.store.get('profile') or {}
+                for key in ('intent','intent_confirmed','looking_for','legacy_profile','intent_review_edits'):
+                    if key in prior:profile[key]=prior[key]
+                if prior.get('intent'):profile['assessment_policy']='evidence-v4'
+                if prior.get('intent') and any(prior.get(k)!=profile.get(k) for k in ('markets','hard_requirements','objectives')):
+                    profile['intent_confirmed']=False
                 if 'weights' in prior and 'weights' not in profile:
                     profile['weights']=prior['weights']
                 if prior.get('market_migration'):
@@ -304,10 +360,12 @@ def make_server(root, database, port=8767, skill_mode=False):
                     app.store.set('cv_text',text)
                     app.store.set('cv_filename','CV'+suffix)
                     app.store.set('proposed_profile',None)
+                    app.store.set('proposed_intent',None)
                     profile = app.store.get('profile')
                     if profile:
                         profile['cv_text'] = text
                         profile['interpreted'] = None
+                        profile['intent_confirmed'] = False
                         app.store.set('profile',profile)
                     return {'text':text,'filename':'CV'+suffix}
                 finally:

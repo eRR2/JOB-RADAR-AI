@@ -1,6 +1,6 @@
 # Windows: second-user setup with Codex Desktop
 
-V2 Phase 3 preview is on `feat/v2-phase3-recovery-updates`, **not GitHub main**.
+V2 Phase 4 preview is on `feat/v2-phase4-ai-first-multisource`, **not GitHub main**.
 Use a separate Windows account/PC and that user's own ChatGPT subscription.
 VS Code, Git, manual Python/Bun installation and a Windows installer are not required.
 PowerShell and permission for local files, processes, downloads and browser launch are required.
@@ -15,7 +15,7 @@ The bootstrap currently supports Windows x64; ARM64 and organizational restricti
 
 ```text
 JOB-RADAR AI'yi bu Windows bilgisayarda benim için kur ve tarayıcıda aç:
-https://github.com/eRR2/JOB-RADAR-AI/tree/feat/v2-phase3-recovery-updates
+https://github.com/eRR2/JOB-RADAR-AI/tree/feat/v2-phase4-ai-first-multisource
 Bu dalın docs/INSTALL_CODEX_DESKTOP.md yönergesini oku. Yeni uygulama klasörünü
 %LOCALAPPDATA%\JOB-RADAR-AI\app altında hazırla ve belgelenmiş kullanıcı
 skill klasörüne job-radar-ai kaydı ekle. Mevcut kurulum/veri/skill varsa koru.
@@ -31,7 +31,11 @@ başkasının CV, oturum, ilan veya geri bildirimini içe aktarma.
    executable presence, subscription login detection and successful inference are different facts.
 4. In the dashboard, upload **your own** text PDF/DOCX, review extracted text, select Codex,
    use **Refresh installed environments → Test inference**, accept processing disclosures,
-   build/review your career profile and configure country conditions/frequency.
+   write your next-move wishes in the one large text field. Interpret with AI, review
+   and edit the short summary, preference origins and geographic scope, then confirm
+   and discover. Salary/leadership are optional. Detailed settings and frequency are
+   under Advanced Preferences. Existing users retain their CV and review preserved
+   settings before accepting a new intent.
 5. Later, ask Codex **“JOB-RADAR AI panomu aç”** or select the `job-radar-ai` skill
    (some Codex surfaces use `$job-radar-ai`; Desktop skill selectors may use `@`).
    Restart Codex if the newly registered skill does not appear. Run now / Remind later / Skip

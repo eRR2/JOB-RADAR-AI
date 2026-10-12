@@ -27,7 +27,7 @@ function fixture(){
   const source=fs.readFileSync('web/app.js','utf8');
   vm.runInContext(source.slice(0,source.lastIndexOf('\nview=')),context);
   const run=code=>vm.runInContext(code,context);
-  run(`state={csrf:'synthetic',profile:{markets:defaultDraft().markets,objectives:'Leadership'},market_state:{DE:{learned:[]},NL:{learned:[]}},global_learned:[],learned:[],runs:[],jobs:[],providers:{codex:{status:'Synthetic',installed:false},claude:{status:'Synthetic',installed:false}},cv:{text:'Synthetic CV',filename:'synthetic'},budgets:{},skill_mode:true};`);
+  run(`state={csrf:'synthetic',profile:{markets:[{id:'DE',country:'Germany',locations:['Berlin'],languages:'',conditions:'',hard_requirements:''},{id:'NL',country:'Netherlands',locations:['Utrecht'],languages:'',conditions:'',hard_requirements:''}],objectives:'Leadership'},market_state:{DE:{learned:[]},NL:{learned:[]}},global_learned:[],learned:[],runs:[],jobs:[],providers:{codex:{status:'Synthetic',installed:false},claude:{status:'Synthetic',installed:false}},cv:{text:'Synthetic CV',filename:'synthetic'},budgets:{},skill_mode:true};`);
   return {run,surfaces,context};
 }
 function nodes(root){return [root,...(root.children||[]).flatMap(nodes)];}
@@ -94,7 +94,7 @@ test('onboarding and Preferences contain no sliders or hidden draft weights',()=
   const onboarding=run('draft=defaultDraft();wizardStep=2;onboarding()');
   assert.equal(nodes(onboarding).filter(n=>n.attributes?.type==='range').length,0);
   assert.equal(run("'weights' in defaultDraft()"),false);
-  const preferences=run('preferences()');
+  const preferences=run('draft=structuredClone(state.profile);preferences()');
   assert.equal(nodes(preferences).filter(n=>n.attributes?.type==='range').length,0);
   assert.match(preferences.text,/Germany market/);assert.match(preferences.text,/Netherlands market/);
 });
@@ -168,4 +168,22 @@ test('onboarding distinguishes Desktop sign-in from a missing or unauthenticated
   assert.match(unauthenticated.text,/Complete your Codex CLI sign-in/);
   const ready=run('state.providers.codex.authenticated=true;providerFields()');
   assert.doesNotMatch(ready.text,/Codex CLI setup needed|Complete your Codex CLI sign-in/);
+});
+
+test('fresh one-text onboarding has generic geography and advanced controls remain optional',()=>{
+  const {run}=fixture();
+  const page=run('state.profile=null;draft=null;onboarding()');
+  assert.equal(run('defaultDraft().markets.length'),0);
+  assert.equal(nodes(page).filter(n=>n.tag==='textarea').length,1);
+  assert.match(page.text,/What are you looking for in your next move/);
+  assert.doesNotMatch(page.text,/Germany market|Netherlands market|Salary expectations/);
+  const advanced=run('preferences()');
+  assert.ok(nodes(advanced).find(n=>n.tag==='details'&&n.text.includes('Advanced Preferences')));
+});
+
+test('clear regional conflict is retained in All jobs but excluded from Recommended',()=>{
+  const {run}=fixture();
+  run(`state.jobs=[{id:'outside',country_id:'DE',location_status:'outside_preferred',market_evaluations:{DE:{evaluation:{recommend:true},assessment_stale:false}},application_status:'none'}];`);
+  assert.equal(run('visibleJobs().length'),1);
+  assert.equal(run('visibleJobs().filter(recommended).length'),0);
 });

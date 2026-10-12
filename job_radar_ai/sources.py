@@ -18,21 +18,22 @@ from .store import now
 from .markets import country_of, defaults
 
 MAX_BYTES = 1_000_000
-AGENT = 'JOB-RADAR-AI/2.3 (+https://github.com/eRR2/JOB-RADAR-AI)'
+AGENT = 'JOB-RADAR-AI/2.4 (+https://github.com/eRR2/JOB-RADAR-AI)'
 DENIED = (401, 403, 406, 429, 999)
 
 
 def publisher_group(host):
-    for domain in ('greenhouse.io','lever.co','ashbyhq.com'):
+    for domain in ('greenhouse.io','lever.co','ashbyhq.com','smartrecruiters.com','workable.com'):
         if host==domain or host.endswith('.'+domain):
             return domain
     return host
 
 
 class RetrievalError(SourceError):
-    def __init__(self, status, message):
+    def __init__(self, status, message, http_status=None):
         super().__init__(message)
         self.status = status
+        self.http_status=http_status
 
 
 def public_url(url):
@@ -85,7 +86,7 @@ def request_public(url, max_bytes=MAX_BYTES):
         response = conn.getresponse()
         status = response.status
         if status in DENIED:
-            raise RetrievalError('blocked', 'Publisher access restriction; no automatic retry.')
+            raise RetrievalError('blocked', 'Publisher access restriction; no automatic retry.',status)
         if status in (301, 302, 303, 307, 308):
             return {'redirect': response.getheader('Location', ''), 'status': status}
         if status == 404 or status == 410:
@@ -113,7 +114,7 @@ def request_public(url, max_bytes=MAX_BYTES):
                 raise RetrievalError('incomplete', 'Source exceeds response size limit.')
         text = bytes(body).decode('utf-8', errors='replace')
         if re.search(r'captcha|authwall|access denied|verify you are human|cf-chl-', text, re.I):
-            raise RetrievalError('blocked', 'Publisher challenge/access restriction; no retry or alternate route.')
+            raise RetrievalError('blocked', 'Publisher challenge/access restriction; no retry or alternate route.',status)
         return {'url': url, 'text': text, 'sha256': hashlib.sha256(body).hexdigest(), 'bytes': len(body), 'at': now()}
     finally:
         conn.close()
@@ -126,18 +127,20 @@ def worker_request(url, cancel=None):
                                          timeout=25, cancel=cancel, max_output=1_500_000)
         result = json.loads(output)
         if code:
-            raise RetrievalError(result.get('status', 'failed'), result['error'])
+            raise RetrievalError(result.get('status', 'failed'), result['error'],result.get('http_status'))
         return result
     except (ProviderError, ValueError) as exc:
         raise RetrievalError('failed', 'Source worker stopped or timed out; no retry.') from exc
 
 
 class PublicFetcher:
-    def __init__(self, store, cancel=None, budget=12, request=None):
+    def __init__(self, store, cancel=None, budget=12, request=None, publisher_budget=None):
         self.store, self.cancel, self.budget = store, cancel, budget
         self.request = request or (lambda url: worker_request(url, cancel))
         self.requests = self.cache_hits = 0
         self.robots = {}
+        self.publisher_budget=publisher_budget
+        self.publisher_requests={}
 
     def get(self, url, api=False):
         origin = public_url(url).hostname
@@ -149,7 +152,7 @@ class PublicFetcher:
         # Same publisher stop survives restarts and cannot be reset by this module.
         group=publisher_group(origin)
         if self.store.get('public:stop:' + origin) or self.store.get('public:stop:'+group):
-            raise RetrievalError('blocked', 'Publisher access is stopped; no new request.')
+            raise RetrievalError('blocked_shared_stop', 'Publisher access is stopped; no new request.')
         if not api:
             self.check_robots(url)
         current = url
@@ -162,7 +165,10 @@ class PublicFetcher:
                     raise RetrievalError('failed', 'Canceled; no new source request.')
                 if self.requests >= self.budget:
                     raise RetrievalError('budget_deferred', 'Public source request budget reached.')
+                if self.publisher_budget is not None and self.publisher_requests.get(group,0)>=self.publisher_budget:
+                    raise RetrievalError('budget_deferred','Publisher request budget reached; cached evidence remains available.')
                 self.requests += 1
+                self.publisher_requests[group]=self.publisher_requests.get(group,0)+1
                 result = self.request(current)
                 if 'redirect' in result:
                     target = urljoin(current, result['redirect'])
@@ -313,12 +319,48 @@ def match_identity(job, candidate, markets=None):
     return candidate
 
 
+def verified_matches(job,url,fetcher,employer_url='',markets=None):
+    options=retrieve_candidates(url,fetcher,employer_url)
+    if not options:
+        from .html_posting import official_html
+        options=official_html(job,url,employer_url,fetcher)
+    matches=[]
+    for option in options:
+        try:matches.append(match_identity(job,option,markets))
+        except RetrievalError:pass
+    return matches
+
+
 def retrieve_candidates(url, fetcher, employer_url=''):
-    """Three documented read-only ATS APIs, otherwise public JobPosting JSON-LD."""
+    """Documented read-only ATS APIs, otherwise public JobPosting JSON-LD."""
     p = public_url(url)
     parts = p.path.strip('/').split('/')
     if fetcher.store.get('public:stop:' + p.hostname) or fetcher.store.get('public:stop:'+publisher_group(p.hostname)):
-        raise RetrievalError('blocked', 'Publisher stopped; no alternate route attempted.')
+        raise RetrievalError('blocked_shared_stop', 'Publisher stopped; no alternate route attempted.')
+    smart=p.hostname=='jobs.smartrecruiters.com' and len(parts)==2
+    workable=p.hostname=='apply.workable.com' and len(parts)==3 and parts[1]=='j'
+    if smart or workable:
+        from .ats import PublicBoards,read_json,normalized
+        token=parts[0]
+        if not re.fullmatch('[A-Za-z0-9_-]{1,100}',token):
+            raise RetrievalError('unverified','Invalid employer board identity.')
+        api=PublicBoards(fetcher)
+        try:
+            if smart:
+                identity=parts[1].split('-')[0]
+                if not identity.isdigit():raise ValueError()
+                endpoint=f'https://api.smartrecruiters.com/v1/companies/{token}/postings/{identity}'
+                data,page=read_json(fetcher,endpoint)
+                if str(data['id'])!=identity or data['company']['identifier'].casefold()!=token.casefold() or data.get('postingUrl')!=url:
+                    raise ValueError()
+                loc=data['location'];location=', '.join(loc[k] for k in ('city','region','country') if loc.get(k))
+                card=normalized('smartrecruiters',token,identity,data['name'],data['company']['name'],location,url,page,country=loc['country'])
+                jobs=[api.complete(card)]
+            else:
+                jobs=[j for j in api.listing({'provider':'workable','url':'https://apply.workable.com/'+token,'employer_url':employer_url}) if j['source_id']==parts[2] and j['url'].rstrip('/')==url.rstrip('/')]
+            return [{**j,'source_url':j['url'],'evidence':j['description_source']} for j in jobs if j.get('description')]
+        except (KeyError,TypeError,ValueError) as exc:
+            raise RetrievalError('unverified','ATS posting identity/schema could not be verified.') from exc
     gh = p.hostname in ('boards.greenhouse.io', 'job-boards.greenhouse.io') and len(parts) == 3 and parts[1] == 'jobs' and parts[2].isdigit()
     lever = p.hostname in ('jobs.lever.co', 'jobs.eu.lever.co') and len(parts) == 2
     ashby = p.hostname == 'jobs.ashbyhq.com' and len(parts) == 2
@@ -357,7 +399,7 @@ def retrieve_candidates(url, fetcher, employer_url=''):
         endpoint = f'https://api.ashbyhq.com/posting-api/job-board/{parts[0]}'
     # A denied hosted board must never be accessed through its API instead.
     if fetcher.store.get('public:stop:' + p.hostname) or fetcher.store.get('public:stop:'+publisher_group(p.hostname)):
-        raise RetrievalError('blocked', 'Hosted publisher stopped; alternate API route refused.')
+        raise RetrievalError('blocked_shared_stop', 'Hosted publisher stopped; alternate API route refused.')
     page = fetcher.get(endpoint, api=True)
     try:
         data = json.loads(page['text'])

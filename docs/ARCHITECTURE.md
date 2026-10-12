@@ -44,8 +44,10 @@ AI only to locate public source URLs, then `sources.py` fetches real text in a b
 worker. HTTPS DNS answers must all be public; numeric IP is pinned and original TLS host
 verified, closing DNS rebinding. No proxies/auth/cookies, bounded bytes/deadlines, robots
 policy, safe same-host redirects and persistent publisher-family stops. LinkedIn denial
-also forbids alternative-source recovery. Documented read-only Greenhouse/Lever/Ashby
-APIs and JobPosting JSON-LD provide source facts; Lever/Ashby require fetched employer
+blocks LinkedIn; independent employer ATS publication remains permitted. Each ATS
+publisher's denial covers its own board/API routes. Documented read-only
+Greenhouse/Lever/EU/Ashby/SmartRecruiters/Workable APIs and JobPosting JSON-LD provide
+source facts; Lever/Ashby require fetched employer
 ownership because their feeds omit employer names. Exact employer/title/locality/country
 and any known requisition, unique candidate and real full text gate association.
 Original identity/history remain; separate description URL/hash/time/identity evidence

@@ -19,11 +19,18 @@ recovery from reviewed staging code before launch.
 
 For missing descriptions use the existing vacancy's **Find full description** or
 bounded **Complete missing descriptions** controls. Original identities and history
-stay in place. Respect all persisted source stops; no retry or alternate route after
-denial. Public APIs/JobPosting text must pass controlled retrieval and exact identity
+stay in place. Respect all persisted source stops; no retry or alternate route to a
+denied publisher. A LinkedIn stop blocks LinkedIn only: independent official employer
+ATS discovery/recovery remains permitted. Public APIs/JobPosting text must pass controlled retrieval and exact identity
 validation. User-supplied text is labeled and never called publisher-verified.
 
-Use the application as the persistent source of truth. Read [the shared workflow](references/workflow.md) for the requested operation. Do not build a parallel job database or replace AI reasoning with keyword scores.
+Use the application as the persistent source of truth. Onboarding uses CV preview and
+one next-move text, followed by editable AI intent and explicit confirmation. Preserve
+existing CV/history and original user texts; review legacy ambiguity before replacement.
+No universal profession, country, salary or leadership defaults. Only two essential
+clarification questions at most; optional details remain in Advanced Preferences.
+Read [the shared workflow](references/workflow.md) for the requested operation.
+Do not build a parallel job database or replace AI reasoning with keyword scores.
 
 Locate the independent JOB-RADAR-AI checkout from the current workspace, a registered adapter's exact checkout path, or the canonical package's `../../` directory. For an individually installed package without a saved path, check the user's `%LOCALAPPDATA%\JOB-RADAR-AI\app`; otherwise ask where it was installed. Never overwrite existing directories or create a second private database. A standalone skill folder is instructions, not the application or a bundled runtime. Read [V2 setup and verification](references/launch.md). For first setup or upgrades follow `docs/INSTALL_CODEX_DESKTOP.md` in the reviewed application checkout.
 

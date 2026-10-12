@@ -11,6 +11,39 @@ from job_radar_ai.contracts import WEIGHTS
 
 
 class HTTPTests(unittest.TestCase):
+    def test_one_text_interpretation_requires_explicit_review_and_preserves_existing_history(self):
+        from test_intent import proposal
+        store=self.server.app.store
+        cv='Actual career evidence '+('Synthetic responsibilities. '*3)
+        store.set('cv_text',cv)
+        old={'objectives':'  Original goal\nverbatim  ','markets':[]}
+        store.set('profile',old)
+        store.upsert_job({'id':'synthetic-existing','title':'Existing','url':'https://employer.example/job'})
+        store.application('synthetic-existing','saved')
+        state=json.load(self.request('/api/state'))
+        headers={'X-Radar-CSRF':state['csrf'],'Origin':self.url}
+        data={'looking_for':'Explore near Toronto, Canada','provider':'codex','consent':True,'secondary':True}
+        for route in ('/api/intent-analysis','/api/intent-accept','/api/confirm-description-source'):
+            with self.assertRaises(urllib.error.HTTPError) as error:self.request(route,data)
+            self.assertEqual(error.exception.code,403)
+        with patch('job_radar_ai.server.Provider') as provider:
+            provider.return_value.run.return_value=proposal()
+            self.request('/api/intent-analysis',data,headers).close()
+            self.server.app.operation_thread.join(3)
+            self.assertEqual(store.get('profile'),old)
+            self.assertEqual(len(store.runs()),0)
+        with self.assertRaises(urllib.error.HTTPError):self.request('/api/intent-accept',{},headers)
+        for edited in ({**data,'linkedin_consent':False,'looking_for':'Changed request'},{**data,'linkedin_consent':False,'consent':False}):
+            with self.assertRaises(urllib.error.HTTPError):self.request('/api/intent-accept',{'confirm':'CONFIRM SEARCH INTENT','input':edited},headers)
+        reviewed=proposal();reviewed['markets'][0]['preferred']=['Toronto','Ottawa'];reviewed['markets'][0]['quote']='Toronto, Ottawa'
+        self.request('/api/intent-accept',{'confirm':'CONFIRM SEARCH INTENT','intent':reviewed,'review_edits':'Toronto, Ottawa'},headers).close()
+        saved=store.get('profile')
+        self.assertTrue(saved['intent_confirmed']);self.assertEqual(saved['looking_for'],data['looking_for'])
+        self.assertEqual(saved['legacy_profile'],old)
+        self.assertEqual(saved['markets'][0]['locations'],['Toronto','Ottawa'])
+        self.assertEqual(store.jobs()[0]['application_status'],'saved')
+        self.assertEqual(len(store.runs()),0)
+
     def test_recovery_and_update_routes_keep_csrf_running_and_input_guards(self):
         token=json.load(self.request('/api/state'))['csrf']
         headers={'X-Radar-CSRF':token,'Origin':self.url}

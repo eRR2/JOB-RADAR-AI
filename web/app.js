@@ -2,9 +2,10 @@
 
 // Untrusted profile, vacancy and AI strings enter the DOM through textContent only.
 const $ = (selector, root = document) => root.querySelector(selector);
+const LOCATION_STATUS={preferred:'Within preferred location',secondary_conditional:'Secondary / conditional location',verified_remote:'Verified remote opportunity',outside_preferred:'Outside preferred location',location_unknown:'Location unknown'};
 const DIMENSIONS = {progression:'Career progression & leadership',technical:'Professional & technical fit',salary:'Salary & benefits',flexibility:'Work flexibility',company:'Company & industry',location:'Location & commuting',learning:'Learning & future opportunities'};
 const STATUS = {none:'Not tracked',saved:'Saved',applied:'Applied',interview:'Interview',offer:'Offer',rejected:'Rejected',dismissed:'Dismissed'};
-let state, view = 'discover', discoverTab = 'recommended', marketTab = 'all', applicationTab = 'saved', wizardStep = 1, draft, filterText = '', filterCategory = 'all', sortBy = 'score', shown = 40, busy = false;
+let state, view = 'discover', discoverTab = 'recommended', marketTab = 'all', applicationTab = 'saved', wizardStep = 1, draft, filterText = '', filterCategory = 'all', sortBy = 'score', shown = 40, busy = false, intentText, intentReview, intentReviewKey, reviewEdits=[];
 
 function el(tag, attributes = {}, ...children) {
   const node = document.createElement(tag);
@@ -125,7 +126,7 @@ function discover() {
   root.append(el('p',{class:'inline-note'},'Guest endpoints provide limited coverage. Observed listings are not confirmed open; check the original posting before applying.'));
   return root;
 }
-function recommended(job) { return job.evaluation?.recommend && ['none','saved'].includes(job.application_status) && job.availability!=='closed_banner_observed'; }
+function recommended(job) { return job.evaluation?.recommend && !job.identity_review_required && job.location_status!=='outside_preferred' && ['none','saved'].includes(job.application_status) && job.availability!=='closed_banner_observed'; }
 
 function stat(label,value,note) { return el('div',{class:'stat'},el('small',{},label),el('strong',{},value),el('p',{},note)); }
 function filters() {
@@ -181,7 +182,7 @@ function detail(job) {
   content.replaceChildren(el('div',{class:'dialog-head'},el('div',{},el('div',{class:'eyebrow'},job.source||'Source recorded'),el('h2',{},job.title),el('p',{class:'muted'},`${job.company||'Unknown employer'} · ${job.location||'Location unknown'}`)),close),
     actions(safeLink(job.url,'View original posting'),select,assessmentSelector(job),button('Refresh AI assessment',()=>act('/api/reevaluate',{job_id:job.id,market_id:job.assessment_market},'AI is reviewing this stored description. No source request is needed.'),'',!job.description||!!latestActive()||!state.profile.markets.some(m=>m.id===job.assessment_market))),
     actions(...['saved','applied','interview','offer','rejected','dismissed'].map(status=>button(STATUS[status],()=>changeStatus(status),'quiet',job.application_status===status))),
-    el('div',{class:'details-meta'},tag(job.country_id||'Location unverified'),tag(job.availability==='closed_banner_observed'?'Closed banner observed':'Availability unconfirmed','amber'),tag('First seen '+date(job.first_seen)),job.description_obtained?tag('Description '+date(job.description_obtained)):null),
+    el('div',{class:'details-meta'},tag(job.country_id||'Location unverified'),job.location_status?tag(LOCATION_STATUS[job.location_status]||'Location unknown','amber'):null,job.integration==='experimental'?tag('Experimental source','amber'):null,job.identity_review_required?tag('Identity needs review','amber'):null,tag(job.availability==='closed_banner_observed'?'Closed banner observed':'Availability unconfirmed','amber'),tag('First seen '+date(job.first_seen)),job.description_obtained?tag('Description '+date(job.description_obtained)):null),
     el('p',{class:'compact muted'},job.evidence||'Source observation only.'),
     descriptionPanel(job),
     evaluation?el('div',{},el('div',{class:'panel'},el('h3',{},'Career assessment'),el('p',{class:'prose'},evaluation.summary),el('div',{class:'job-tags'},tag(evaluation.category.replaceAll('_',' ')),tag(job.assessment_stale?'Reassessment pending · prior evidence retained':'Validated assessment'),evaluation.assessment_version!==2?tag(`Legacy score: ${evaluation.weighted_score??'Unknown'} / 100`):tag('Natural-language preferences · no weighted total')),el('p',{class:'inline-note'},'AI dimension assessments are subjective. Unknown facts require verification. ATS and HR explanations are separate; no proprietary ATS score is claimed.'),el('div',{class:'report-metrics'},Object.entries(evaluation.scores).map(([key,value])=>el('div',{},el('strong',{},value===null?'Unknown':value),el('small',{},DIMENSIONS[key]))))),
@@ -212,9 +213,11 @@ function descriptionPanel(job) {
   const labels={not_attempted:'Detail never attempted',budget_deferred:'Detail deferred by budget',failed:'Detail attempted and failed',blocked:'Source access restricted',incomplete:'Incomplete description',unavailable:'Verified source unavailable',unverified:'Alternative identity unverified',user_supplied:'User-supplied description · publisher retrieval unverified',public_verified:'Verified public source text',linkedin:'LinkedIn detail retrieved',available:'Stored description available'};
   const busy=!!latestActive()||state.operation?.status==='running';
   const panel=el('div',{class:'panel'},el('h3',{},'Full description'),tag(labels[job.description_status]||'Description missing','amber'));
+  if(job.description_status==='blocked_shared_stop')panel.append(el('p',{},'Skipped due to an existing publisher stop; no new HTTP denial. Independent official sources may still be available.'));
   if(job.description_source_url)panel.append(safeLink(job.description_source_url,'Description source'),el('p',{class:'compact'},'Original posting identity is retained. Source retrieval: '+date(job.description_source?.at)));
   if(job.description_attempts?.length)panel.append(el('details',{},el('summary',{},'Retrieval attempts'),...job.description_attempts.map(a=>el('p',{},a.source+' · '+a.status+' · '+a.reason))));
   if(!job.description) {
+    for(const candidate of job.description_candidates||[])panel.append(el('div',{class:'status-box warning'},el('strong',{},'Ambiguous source association — your confirmation is required'),el('p',{},candidate.company+' · '+candidate.title+' · '+candidate.location+' · '+(candidate.requisition_id||'ID unknown')),safeLink(candidate.url,'Verified source candidate'),button('Confirm this posting',async()=>{if(!confirm('Associate this fetched posting with this exact vacancy? Original ID, URL and history will remain.'))return;await act('/api/confirm-description-source',{job_id:job.id,candidate_id:candidate.candidate_id,confirm:'CONFIRM POSTING IDENTITY'},'Confirmed source association; existing country evaluation will run.');},'',busy)));
     panel.append(button('Find full description',()=>resolveDescription(job,'/api/resolve-description'),'',busy));
     const text=el('textarea',{'aria-label':'User-supplied job description',maxlength:'60000',placeholder:'Paste the full description for this exact vacancy (100–60,000 characters).'});
     panel.append(el('details',{},el('summary',{},'Supply a description yourself'),el('p',{},'This will be labeled user-supplied. It does not prove publisher retrieval or vacancy availability.'),text,button('Use supplied description',()=>resolveDescription(job,'/api/supplied-description',text.value),'',busy)));
@@ -252,7 +255,7 @@ function reportPanel(run) {
   let p=run.payload;
   if(p.kind==='description_recovery'&&marketTab!=='all'&&p.outcomes) {
     const outcomes=p.outcomes.filter(o=>o.country_id===marketTab);
-    const metrics={attempted:outcomes.length,recovered:outcomes.filter(o=>o.recovered).length,unavailable:outcomes.filter(o=>!o.available&&o.status!=='blocked').length,blocked:outcomes.filter(o=>o.status==='blocked').length,evaluated:outcomes.filter(o=>o.evaluated).length,remaining:outcomes.filter(o=>!o.available).length};
+    const metrics={attempted:outcomes.length,recovered:outcomes.filter(o=>o.recovered).length,unavailable:outcomes.filter(o=>!o.available&&!['blocked','blocked_shared_stop'].includes(o.status)).length,blocked:outcomes.filter(o=>['blocked','blocked_shared_stop'].includes(o.status)).length,evaluated:outcomes.filter(o=>o.evaluated).length,remaining:outcomes.filter(o=>!o.available).length};
     const ids=outcomes.map(o=>o.job_id);
     p={...p,metrics,job_ids:ids,sources:p.sources.filter(s=>ids.includes(s.job_id)),descriptions:metrics.recovered,evaluated:metrics.evaluated,previously_seen:outcomes.length};
   }
@@ -260,14 +263,15 @@ function reportPanel(run) {
   const recommendedCount=reportJobs.filter(recommended).length;
   return el('article',{class:'panel'},el('div',{class:'report-row'},el('div',{},el('div',{class:'eyebrow'},`RUN #${run.id} · ${date(run.started)}`),el('h2',{},p.plan?'Your AI search briefing':'Run record')),tag(run.status,run.status==='completed'?'green':'amber')),
     p.metrics?el('div',{class:'report-metrics'},...Object.entries(p.metrics).map(([label,value])=>el('div',{},el('strong',{},value),el('small',{},label)))):null,
+    p.kind==='description_recovery'?el('p',{class:'inline-note'},`${(p.sources||[]).filter(s=>s.status==='blocked_shared_stop').length} shared-stop skips · ${(p.sources||[]).filter(s=>[401,403,406,429,999].includes(s.http_status)).length} actual HTTP denials · ${p.status_counts?.budget_deferred||0} budget deferred`):null,
     el('div',{class:'report-metrics'},... [['Jobs discovered',p.discovered??p.job_ids?.length],['New jobs',p.new_jobs],['Previously seen',p.previously_seen],['Full descriptions available',p.available_descriptions??p.descriptions],['AI reviews',p.evaluated],['Recommended now',recommendedCount],['Reassessment pending',reportJobs.filter(j=>j.assessment_stale).length],['Source limitations',new Set(p.warnings||[]).size],['Source requests',p.requests],['Cache hits',p.cache_hits]].map(([label,value])=>el('div',{},el('strong',{},value||0),el('small',{},label)))),
     el('p',{class:'prose'},p.report||run.stage),p.plan?el('details',{open:''},el('summary',{},'The strategy your AI chose'),el('p',{class:'prose'},p.plan.strategy),el('div',{class:'job-tags'},p.plan.role_families.map(f=>tag(f))),p.plan.queries.map(q=>el('div',{class:'source-row'},el('div',{},el('strong',{},q.query),el('p',{class:'muted'},q.location+' · '+q.reason))))):null,
-    el('h3',{},'Sources checked'),(p.sources||[]).map(source=>el('div',{class:'source-row'},el('div',{},el('strong',{},source.source),el('p',{class:'muted'},source.query||source.reason||'')),el('div',{},tag(source.status,source.status==='success'?'green':'amber'),source.count!==undefined?el('span',{class:'compact'},' '+source.count+' observed'):null))),
+    el('h3',{},'Sources checked'),(p.sources||[]).map(source=>el('div',{class:'source-row'},el('div',{},el('strong',{},source.source),el('p',{class:'muted'},source.query||source.reason||'')),el('div',{},tag(source.status,source.status==='success'?'green':'amber'),source.integration?tag(source.integration==='experimental'?'Experimental source':'Live-verified adapter','amber'):null,source.count!==undefined?el('span',{class:'compact'},' '+source.count+' observed'):null))),
     p.research?el('p',{class:'prose'},p.research.summary):null,(p.warnings||[]).length?el('div',{class:'status-box warning'},el('strong',{},'Limits & missing evidence'),el('ul',{},p.warnings.map(w=>el('li',{},w)))):null,
     el('p',{class:'inline-note'},'Counts record observations and obtained descriptions, not verified-open vacancies. Recommended count reflects your current profile and application state.'));
 }
 
-function defaultDraft() {return {objectives:'',seniority:'',leadership:'',industries:'',strengths:'',unwanted:'',hard_requirements:'',followup_answers:'',provider:'codex',markets:[{id:'DE',country:'Germany',locations:['Germany'],languages:'German / English',conditions:'',hard_requirements:''},{id:'NL',country:'Netherlands',locations:['Netherlands'],languages:'Dutch / English',conditions:'',hard_requirements:''}],consent:false,linkedin_consent:false,secondary:false,frequency:'manual',time:'09:00',weekday:0};}
+function defaultDraft() {return {objectives:'',seniority:'',leadership:'',industries:'',strengths:'',unwanted:'',hard_requirements:'',followup_answers:'',provider:'codex',markets:[],consent:false,linkedin_consent:false,secondary:false,frequency:'manual',time:'09:00',weekday:0};}
 
 function field(key,label,placeholder='',wide=false,textarea=false) {
   const control=el(textarea?'textarea':'input',{id:'profile-'+key,value:draft[key]||'',placeholder,maxlength:'4000',onInput:event=>{draft[key]=event.target.value;}});
@@ -329,16 +333,44 @@ async function saveProfile(analyze=false) {
 }
 function onboarding() {
   draft ||= defaultDraft();
-  const root=el('div',{class:'wizard'},el('div',{class:'hero'},el('div',{},el('div',{class:'eyebrow'},'WELCOME TO JOB-RADAR AI'),el('h1',{},'Let’s find what’s next for you.'),el('p',{},'Give your radar a little context. Your own AI environment will turn your experience into a thoughtful career search.'))));
-  root.append(el('div',{class:'steps'},...['Your experience','What matters to you','Your AI & routine'].map((label,i)=>el('div',{class:'step'+(wizardStep===i+1?' active':'')},el('span',{},i+1),label))));
-  const panel=el('div',{class:'panel'});
-  if(wizardStep===1)panel.append(cvUpload(),el('h2',{},'A little about your next chapter'),careerFields());
-  if(wizardStep===2)panel.append(el('h2',{},'Independent country markets'),locationFields(),marketFields());
-  if(wizardStep===3)panel.append(el('h2',{},'Use the AI environment you already own.'),providerFields(),el('hr',{class:'divider'}),el('h3',{},'Choose your search rhythm'),scheduleFields());
-  panel.append(el('div',{class:'wizard-footer'},el('p',{},`Step ${wizardStep} of 3 · Personal data stays out of GitHub`),actions(wizardStep>1?button('Back',()=>{wizardStep--;render();}):null,wizardStep<3?button('Continue →',()=>{if(wizardStep===1&&(!state.cv.text||!draft.objectives.trim())){toast('Upload your CV and describe your career objectives first.',true);return;}wizardStep++;render();},'primary'):button('Build my career profile →',()=>saveProfile(true),'primary'))));
-  root.append(panel);return root;
+  return el('div',{class:'wizard'},title('Let’s find what’s next for you.','Your CV and your own words guide the search. Review the AI interpretation before discovery.'),intentPanel());
 }
 function preferences() {
+  if(!draft){draft=defaultDraft();for(const key of Object.keys(draft))if(state.profile?.[key]!==undefined)draft[key]=structuredClone(state.profile[key]);}
+  return el('div',{},title('Your next move.','Edit your own words, then review the interpretation. Your existing CV and history stay in place.'),intentPanel(),el('details',{},el('summary',{},'Advanced Preferences — optional detailed control'),advancedPreferences()));
+}
+function intentPanel() {
+  intentText ??= state.proposed_intent?.input?.looking_for ?? state.profile?.looking_for ?? state.profile?.objectives ?? '';
+  const root=el('div',{class:'panel'},cvUpload(),el('label',{class:'field',for:'next-move'},'What are you looking for in your next move?',el('textarea',{id:'next-move',value:intentText,rows:'7',maxlength:'12000',placeholder:'Describe what matters to you in your own words. Unknown details can stay unknown.',onInput:event=>{intentText=event.target.value;}})));
+  if(state.intent_review_required)root.append(el('p',{class:'status-box warning'},'Review your preserved settings before replacing them. No new CV upload is required.'));
+  root.append(el('details',{},el('summary',{},'AI environment & source permissions'),providerFields()));
+  const active=!!latestActive()||state.operation?.status==='running';
+  if(state.operation)root.append(el('div',{class:'status-box',role:'status'},state.operation.kind+' · '+state.operation.status,el('p',{},state.operation.message),active?button('Cancel',()=>act('/api/cancel',{})):null));
+  root.append(button('Interpret my next move',()=>act('/api/intent-analysis',{looking_for:intentText,provider:draft.provider,consent:draft.consent,linkedin_consent:draft.linkedin_consent,secondary:draft.secondary},'AI interpretation started; review before searching.'),'primary',active));
+  const proposed=state.proposed_intent;
+  if(proposed){
+    const key=JSON.stringify(proposed);
+    if(intentReviewKey!==key){intentReviewKey=key;intentReview=structuredClone(proposed.intent);reviewEdits=[];}
+    const edit=(item,key,value)=>{item[key]=value;const evidence=Array.isArray(value)?value.join(', '):value;reviewEdits.push(evidence);if(key==='value'){item.origin='explicit';item.quote=value;}else if(['country','preferred','secondary'].includes(key)){item.origin='explicit';item.quote=evidence;}};
+    const review=el('div',{},el('h2',{},"Here’s what I understood"),el('textarea',{'aria-label':'Edit understood summary',value:intentReview.summary,onInput:e=>{intentReview.summary=e.target.value;}}));
+    for(const p of intentReview.preferences){
+      const scope=el('select',{'aria-label':'Scope for '+p.topic,onChange:e=>{p.scope=e.target.value;}},el('option',{value:''},'Global'),...intentReview.markets.map(m=>el('option',{value:m.id},m.country)));scope.value=p.scope;
+      review.append(el('label',{class:'field'},p.topic+' · '+p.origin,el('input',{value:p.value,placeholder:p.origin==='unknown'?'Unknown — optional':'',onInput:e=>edit(p,'value',e.target.value)}),scope,el('label',{class:'check'},el('input',{type:'checkbox',checked:p.hard,onChange:e=>{p.hard=e.target.checked;if(p.hard){p.origin='explicit';p.quote=p.value;reviewEdits.push(p.value);}}}),'Required by me')));
+    }
+    for(const m of intentReview.markets){
+      const geography=el('select',{'aria-label':'Geographic scope for '+m.country,onChange:e=>{m.scope_type=e.target.value;}},...['city','region','country','mixed'].map(v=>el('option',{value:v},v)));geography.value=m.scope_type;
+      const remote=el('select',{'aria-label':'Remote exception for '+m.country,onChange:e=>{m.remote=e.target.value;}},...['none','within_country','anywhere'].map(v=>el('option',{value:v},v.replaceAll('_',' '))));remote.value=m.remote;
+      review.append(el('label',{class:'field'},'Geographic scope',geography));
+      review.append(el('div',{class:'panel'},el('h3',{},m.country+' · '+m.origin),el('label',{class:'field'},'Country',el('input',{value:m.country,onInput:e=>edit(m,'country',e.target.value)})),el('label',{class:'field'},'Country code',el('input',{value:m.id,maxlength:'2',onInput:e=>{m.id=e.target.value.toUpperCase();}})),...['preferred','secondary'].map(k=>el('label',{class:'field'},k==='preferred'?'Preferred locations':'Secondary acceptable locations',el('input',{value:m[k].join('; '),onInput:e=>edit(m,k,e.target.value.split(';').map(s=>s.trim()).filter(Boolean))}))),el('label',{class:'field'},'Remote exception',remote),el('label',{class:'check'},el('input',{type:'checkbox',checked:m.relocation,onChange:e=>{m.relocation=e.target.checked;}}),'Relocation exception allowed')));
+    }
+    for(const question of intentReview.questions)review.append(el('p',{class:'status-box'},question));
+    if(intentReview.questions.length)review.append(el('p',{},'Add any essential answer to your next-move text and interpret again. Salary and leadership details are optional.'));
+    review.append(button('Confirm intent & discover',async()=>{try{await api('/api/intent-accept',{intent:intentReview,input:{looking_for:intentText,provider:draft.provider,consent:draft.consent,linkedin_consent:draft.linkedin_consent,secondary:draft.secondary},review_edits:reviewEdits.flat().join('\n'),confirm:'CONFIRM SEARCH INTENT'});draft=null;view='discover';await refresh();await act('/api/search',{market_id:'all'},'Discovering from your confirmed intent.');}catch(error){toast(error.message,true);}},'primary',active||!intentReview.markets.length||intentText!==proposed.input.looking_for));
+    root.append(review);
+  }else if(state.profile?.intent)root.append(el('div',{},el('h2',{},'Confirmed understanding'),el('p',{class:'prose'},state.profile.intent.summary),...state.profile.intent.markets.map(m=>el('p',{},m.country+': preferred '+(m.preferred.join(', ')||m.country)+'; secondary '+(m.secondary.join(', ')||'none')+'; remote '+m.remote))));
+  return root;
+}
+function advancedPreferences() {
   if(!draft) {draft=defaultDraft();for(const key of Object.keys(draft))if(state.profile[key]!==undefined)draft[key]=structuredClone(state.profile[key]);}
   const root=el('div',{},title('Make this search your own.','Your experience, priorities and explicit feedback guide every AI decision.'));
   root.append(updatePanel());
@@ -352,7 +384,7 @@ function preferences() {
   const learned=el('textarea',{'aria-label':'Editable learned preferences',value:state.global_learned.map(p=>p.text).join('\n'),placeholder:'One genuinely global preference per line'});
   const paused=el('input',{type:'checkbox',checked:state.learning_paused,'aria-label':'Pause automatic preference learning'});
   root.append(el('div',{class:'panel'},el('h2',{},'Global learned preferences'),el('p',{},state.learning_explanation||'No learned preferences yet. Explicit job feedback will be considered in later searches.'),el('div',{class:'job-tags'},state.global_learned.map(p=>tag(p.confidence,p.confidence==='tentative'?'amber':'green'))),learned,el('label',{class:'check'},paused,'Pause automatic learning and keep my edits.'),actions(button('Save learned preferences',()=>act('/api/learned',{preferences:learned.value.split('\n').filter(Boolean),paused:paused.checked,scope:'global'},'Learned preferences saved.')),button('Reset learning',()=>{if(confirm('Reset learned preferences and pause automatic learning? Past job feedback will remain available.'))act('/api/learning-reset',{confirm:'RESET LEARNING'},'Learning reset.');},'danger'))),el('div',{class:'panel'},el('h2',{},'Your AI environment'),providerFields(),el('hr',{class:'divider'}),button('Interpret my CV with AI',()=>act('/api/profile-analysis',{},'AI profile interpretation started.'))),el('div',{class:'panel'},el('h2',{},'Search routine'),scheduleFields(),actions(button('Save routine & preferences',()=>saveProfile(),'primary'),state.skill_mode?null:button('Create Windows scheduled task',async()=>{if(!confirm('Create a Windows Task Scheduler task named JOB-RADAR-AI using your saved daily/weekly time? It runs with your logged-in account, while the computer is on. Existing tasks are never overwritten.'))return;try{await api('/api/profile',draft);await act('/api/native-task',{confirm:'CREATE WINDOWS TASK'},'Windows scheduled task created.');}catch(error){toast(error.message,true);}})),!state.skill_mode&&state.native_task?el('p',{class:'inline-note'},state.native_task.message+' Saved task uses '+state.native_task.schedule.frequency+' at '+state.native_task.schedule.time+'. Later schedule edits require updating the task in Windows Task Scheduler.'):null));
-  for(const market of state.profile.markets) {
+  for(const market of state.profile?.markets||[]) {
     const info=state.market_state[market.id];
     const input=el('textarea',{'aria-label':market.country+' learned preferences',value:info.learned.map(p=>p.text).join('\n')});
     root.append(el('div',{class:'panel'},el('h2',{},market.country+' learning'),el('p',{},info.learning_explanation||'Only this country feedback and explicit global feedback influence this market.'),input,button('Save regional learning',()=>act('/api/learned',{scope:market.id,preferences:input.value.split('\n').filter(Boolean),paused:paused.checked},'Regional learning saved.'))));

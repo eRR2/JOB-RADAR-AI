@@ -9,7 +9,9 @@ from .linkedin import LinkedIn, SourceError
 from .providers import Provider, ProviderError
 from .store import now
 from .markets import market_profile, query_locations, validate_queries, country_of
-from .sources import PublicFetcher, retrieve_candidates, match_identity, RetrievalError
+from .sources import PublicFetcher, retrieve_candidates, match_identity, verified_matches, RetrievalError
+from .geography import bounded_plan, valid_query, scope_for, location_status
+from .ats import PublicBoards, sampled, observe, STATUS as ATS_STATUS
 
 DEFAULT_BUDGETS = {'searches': 3, 'pages': 1, 'details': 5, 'requests': 8, 'spacing': 5}
 
@@ -17,7 +19,7 @@ DEFAULT_BUDGETS = {'searches': 3, 'pages': 1, 'details': 5, 'requests': 8, 'spac
 def profile_signature(profile):
     import json
     keys = ['cv_text', 'objectives', 'seniority', 'leadership', 'industries', 'strengths', 'city', 'region',
-            'commute', 'relocation', 'workplace', 'salary', 'hours', 'unwanted', 'hard_requirements', 'followup_answers', 'interpreted', 'market', '_market_revision', '_preference_revision']
+            'commute', 'relocation', 'workplace', 'salary', 'hours', 'unwanted', 'hard_requirements', 'followup_answers', 'interpreted', 'intent', 'looking_for', 'market', '_market_revision', '_preference_revision']
     return hashlib.sha256(json.dumps({k:profile.get(k,0 if k=='_preference_revision' else None) for k in keys},sort_keys=True).encode()).hexdigest()
 
 
@@ -38,7 +40,7 @@ def source_context(job):
     # Stored jobs also contain all-market assessments, feedback and application
     # outcomes. Only source facts cross into triage/evaluation; explicit learning
     # arrives through the separately scoped feedback channel.
-    fields=('id','source_id','source','title','company','location','country_id','url','description','availability','evidence','description_obtained','description_source_url','description_status')
+    fields=('id','source_id','source','title','company','location','country_id','url','description','availability','evidence','description_obtained','description_source_url','description_status','workplace','remote_verified','location_status')
     return {key:job[key] for key in fields if key in job}
 
 
@@ -70,6 +72,9 @@ def prepare_evaluation(value, job, profile):
         known=job.get('country_id')
         if known and known!=profile['market']['id']:
             value['recommend']=False
+        value['location_status']=location_status(job,profile,profile['market'])
+        if value['location_status']=='outside_preferred':
+            value['recommend']=False
     return value
 
 
@@ -84,8 +89,10 @@ class Hunter:
     def start(self, market_id='all'):
         with self.lock:
             profile = self.store.get('profile')
-            if not profile or not profile.get('consent') or not profile.get('linkedin_consent'):
-                raise ValueError('Finish onboarding and confirm provider processing / LinkedIn guest use first.')
+            if not profile or not profile.get('consent') or not (profile.get('linkedin_consent') or profile.get('secondary')):
+                raise ValueError('Confirm provider processing and at least one permitted discovery source first.')
+            if profile.get('intent') and not profile.get('intent_confirmed'):
+                raise ValueError('Review the changed search intent before discovery.')
             if len(profile.get('cv_text', '')) < 30:
                 raise ValueError('Upload a readable CV first.')
             if profile.get('market_migration',{}).get('review_required'):
@@ -155,7 +162,7 @@ class Hunter:
 
     def _execute_markets(self, run_id, cancel, ai=None, source=None, market_id='all'):
         if self.public_fetcher is None:
-            self.public_fetcher=PublicFetcher(self.store,cancel,budget=3)
+            self.public_fetcher=PublicFetcher(self.store,cancel,budget=min(8,self.store.get('budgets',DEFAULT_BUDGETS)['requests']),publisher_budget=4)
         profile=self.store.get('profile')
         if not profile.get('markets'):
             return self._execute_market(run_id,cancel,ai,source)
@@ -177,7 +184,7 @@ class Hunter:
             self.store.update_run(run_id,'Market outcome recorded',{'markets':outcomes})
         job_ids=list(dict.fromkeys(j for p in outcomes.values() for j in p['job_ids']))
         combined={'markets':outcomes,'job_ids':job_ids,'warnings':list(dict.fromkeys(w for p in outcomes.values() for w in p['warnings'])),
-                  'requests':source.requests,'cache_hits':source.cache_hits,
+                  'requests':source.requests+(self.public_fetcher.requests if self.public_fetcher else 0),'linkedin_requests':source.requests,'public_requests':self.public_fetcher.requests if self.public_fetcher else 0,'cache_hits':source.cache_hits+(self.public_fetcher.cache_hits if self.public_fetcher else 0),
                   'sources':[{**s,'market_id':m} for m,p in outcomes.items() for s in p['sources']],
                   'description_failures':[{**f,'market_id':m} for m,p in outcomes.items() for f in p['description_failures']],
                   'report':'Independent market searches finished. Review each country outcome and remaining limitations.'}
@@ -190,16 +197,19 @@ class Hunter:
         combined['previously_seen']=max(0,len(job_ids)-combined['new_jobs'])
         statuses=[p['status'] for p in outcomes.values()]
         status='canceled' if cancel.is_set() else 'completed' if all(s=='completed' for s in statuses) else 'failed' if all(s=='failed' for s in statuses) else 'partial'
-        self.store.update_run(run_id,'Market searches finished; review country outcomes',combined,status)
+        self.store.update_run(run_id,'Ready to review — country outcomes and limitations retained',combined,status)
 
     def _execute_market(self, run_id, cancel, ai=None, source=None, market=None, market_budgets=None):
+        public_baseline=self.public_fetcher.requests if self.public_fetcher else 0
         counters = {'new_jobs': 0, 'previously_seen': 0, 'descriptions': 0, 'evaluated': 0,
                     'sources': [], 'warnings': [], 'job_ids': [], 'evaluated_ids': [], 'description_failures': [], 'evaluation_failures': []}
         def progress(stage):
             self.store.update_run(run_id,stage,{'current_market':market['id'],'current_outcome':counters} if market else counters)
 
         def finish(stage,status):
-            counters['requests']=source.requests if source else 0
+            counters['linkedin_requests']=source.requests if source else 0
+            counters['public_requests']=(self.public_fetcher.requests-public_baseline) if self.public_fetcher else 0
+            counters['requests']=counters['linkedin_requests']+counters['public_requests']
             counters['cache_hits']=source.cache_hits if source else 0
             counters['warnings']=list(dict.fromkeys(counters['warnings']))
             counters['status']=status
@@ -223,8 +233,8 @@ class Hunter:
                 if cancel.is_set():
                     raise ProviderError('Canceled by user.')
                 progress({'plan': 'AI is designing your search', 'triage': 'AI is selecting descriptions',
-                    'evaluation': 'AI is reviewing career fit, ATS and HR', 'learning': 'AI is interpreting your explicit feedback',
-                    'research': 'AI is researching official vacancy sources'}[kind])
+                    'evaluation': 'AI evaluating — career fit, ATS and HR', 'learning': 'AI is interpreting your explicit feedback',
+                    'research': 'AI is researching official vacancy sources','resolve':'Verifying descriptions — locating independent publication','boards':'Discovering — locating independent official ATS boards'}[kind])
                 return ai.run(kind, task, data, cancel=cancel, research=research)
 
             if feedback and not self.store.get('learning_paused', False):
@@ -245,19 +255,53 @@ class Hunter:
                 self.store.set('learning_explanation'+(':'+market['id'] if market else ''), learning['explanation'])
                 context['learned_preferences'] = self.store.get('learned:global',[])+learned
             boundary = f' This is exclusively the {market["country"]} market. Every query location MUST be exactly one of {query_locations(market)}. Respect only this market\'s languages and conditions. No other country searches.' if market else ''
-            plan = call('plan', f'Generate an independent dynamic LinkedIn-first strategy, multiple role families including transferable/stretch options. No fixed title list. Provide up to {budgets["searches"]} concise natural-language queries under 100 characters and explain each; avoid long Boolean expressions. Region/language follow profile. Choose optional official web research only when valuable. Public queries must contain no personal identifiers.'+boundary, context)
+            scope=scope_for(original,market) if market else None
+            if scope and scope['remote']!='none':
+                boundary+=f' Explicit exception: a remote-only query may use {market["country"]}; ordinary onsite/any queries must retain the reviewed region.'
+            strategy='multi-source' if original.get('intent_confirmed') else 'LinkedIn-first'
+            plan = call('plan', f'Generate an independent dynamic {strategy} strategy, multiple role families including transferable/stretch options. No fixed title list. Provide up to {budgets["searches"]} concise natural-language queries under 100 characters and explain each; avoid long Boolean expressions. Region/language follow profile. Choose optional official web research only when valuable. Public queries must contain no personal identifiers.'+boundary, context)
             if market:
-                validate_queries(plan['queries'],market)
+                plan=bounded_plan(plan,market,original,lambda:call('plan','Correct ONLY the invalid geographic plan once. Use exactly the confirmed regional locations, not the entire country. Retain valid queries; no source request has been sent.'+boundary,{**context,'invalid_plan':plan}))
+                if not plan['queries']:
+                    counters['warnings'].append('No valid regional LinkedIn queries after one bounded correction; country scope was not expanded.')
             counters['plan'] = plan
-            progress('Searching LinkedIn with the AI plan')
+            progress('Discovering — permitted sources from the confirmed plan')
             candidates = {}
             used_queries = set()
             search_count = 0
+            public_boards=PublicBoards(self.public_fetcher or PublicFetcher(self.store,cancel,budget=min(8,budgets['requests'])))
+            if market and original.get('intent_confirmed') and profile.get('secondary'):
+                try:
+                    located=call('boards','Locate at most two independently published official employer boards suitable for these public role families and confirmed geography. Use a board root URL from Greenhouse, Lever (including EU), Ashby, SmartRecruiters or Workable. Supply the actual official employer page linking its board, never invent a slug or job record. No LinkedIn requests or denied publisher alternate routes.',
+                        {'role_families':plan['role_families'],'country':market['country'],'locations':query_locations(market),'scope':{k:v for k,v in (scope_for(original,market) or {}).items() if k in ('preferred','secondary','remote','relocation')}},research=True)
+                    for board in located['boards']:
+                        before=public_boards.fetcher.requests
+                        try:
+                            city=scope['preferred'][0].removesuffix(', '+market['country']) if scope and scope.get('scope_type')=='city' and scope['preferred'] else ''
+                            cards=sampled(public_boards.listing({**board,'country':market['id'],'city':city}),original,market)
+                            prior_descriptions={j['id']:bool(j.get('description')) for j in self.store.jobs()}
+                            for job in cards:
+                                job['country_id']=country_of(job,original['markets'])
+                                stored,new=observe(self.store,job,run_id,market)
+                                counters['descriptions']+=int(bool(stored.get('description')) and not prior_descriptions.get(stored['id'],False))
+                                prior_descriptions[stored['id']]=bool(stored.get('description'))
+                                counters['new_jobs' if new else 'previously_seen']+=1
+                                candidates[stored['id']]=stored
+                            counters['sources'].append({'source':board['provider'],'status':'success','integration':ATS_STATUS[board['provider']],'count':len(cards),'requests':public_boards.fetcher.requests-before})
+                        except SourceError as exc:
+                            counters['sources'].append({'source':board['provider'],'status':getattr(exc,'status','failed'),'http_status':getattr(exc,'http_status',None),'count':0,'reason':str(exc),'requests':public_boards.fetcher.requests-before,'integration':ATS_STATUS[board['provider']]})
+                            counters['warnings'].append(str(exc))
+                except (ProviderError,ValueError) as exc:
+                    counters['warnings'].append('Official board discovery unavailable: '+str(exc))
 
             def search_queries(queries):
                 nonlocal search_count
                 if market:
-                    validate_queries(queries,market)
+                    queries=[q for q in queries if valid_query(q,market,scope_for(original,market))]
+                if not profile.get('linkedin_consent') or self.store.get('linkedin_stop') or self.store.get('linkedin_pending'):
+                    if not any(s.get('status') in ('blocked_shared_stop','not_enabled') and s.get('source')=='LinkedIn guest' for s in counters['sources']):
+                        counters['sources'].append({'source':'LinkedIn guest','status':'blocked_shared_stop' if self.store.get('linkedin_stop') or self.store.get('linkedin_pending') else 'not_enabled','count':0,'reason':'No LinkedIn request sent; independent official ATS sources remain permitted.'})
+                    return
                 for query in queries:
                     key = (query['query'].casefold(), query['location'].casefold(), query['remote'])
                     if key in used_queries or search_count >= budgets['searches']:
@@ -311,9 +355,17 @@ class Hunter:
                     triage=call('triage',f'Choose at most {budgets["details"]} detail IDs from ALL current candidates including new discoveries. No further search expansion is available; return expand_queries: [].',
                                 {**context,'candidates':[source_context(j) for j in candidates.values()],'remaining_searches':0})
             selected = (triage['detail_ids'] if triage else [])[:budgets['details']]
+            # Verified full text is already available: use the existing bounded
+            # assessment quota without requiring a redundant detail request.
+            if market and original.get('intent_confirmed'):
+                ready=[j['id'] for j in sampled(list(candidates.values()),original,market)
+                       if j.get('description') and j.get('description_status')=='public_verified'
+                       and country_of(j,original['markets'])==market['id']]
+                selected=list(dict.fromkeys(ready+selected))[:budgets['details']]
             if any(job_id not in candidates for job_id in selected):
                 raise ValueError('AI selected an unknown job identity.')
             descriptions = {}
+            progress('Verifying descriptions — exact identities and source text')
             for job_id in dict.fromkeys(selected):
                 prior = existing.get(job_id, {})
                 transport=source.source if isinstance(source,MarketSource) else source
@@ -324,6 +376,18 @@ class Hunter:
                     descriptions[job_id] = prior
                     continue
                 try:
+                    if candidates[job_id]['id'].startswith('ats:'):
+                        detail=public_boards.complete(candidates[job_id])
+                        if not detail.get('description'):
+                            raise RetrievalError('incomplete','ATS posting retained but full description is incomplete.')
+                        self.store.upsert_job(detail,run_id,market['id'] if market else None)
+                        candidates[job_id].update(detail)
+                        descriptions[job_id]=candidates[job_id]
+                        counters['descriptions']+=int(not prior.get('description'))
+                        continue
+                    if candidates[job_id].get('description_status')=='public_verified' and candidates[job_id].get('description'):
+                        descriptions[job_id]=candidates[job_id]
+                        continue
                     detail = source.detail(candidates[job_id]['source_id'])
                     self.store.upsert_job(detail, run_id,market['id'] if market else None)
                     candidates[job_id].update(detail)
@@ -334,9 +398,27 @@ class Hunter:
                 except SourceError as exc:
                     counters['description_failures'].append({'job_id': job_id, 'reason': str(exc)})
                     counters['warnings'].append(str(exc))
-                    if self.store.get('linkedin_stop') or self.store.get('linkedin_pending'):
-                        break
-            if plan['supplementary_research'] and profile.get('secondary'):
+                    # A LinkedIn stop cannot interrupt later independent ATS
+                    # candidates. The LinkedIn transport itself refuses retries.
+                    if market and original.get('intent_confirmed') and profile.get('secondary') and public_boards.fetcher.requests<public_boards.fetcher.budget:
+                        job=candidates[job_id]
+                        try:
+                            located=call('resolve','Locate up to two independently published official postings for this exact observed vacancy. Never invent text or bypass a denied publisher. Preserve exact employer/title/locality/country/requisition identity; no LinkedIn requests.',
+                                         {'job':{k:job.get(k) for k in ('title','company','location','url','requisition_id')}},research=True)
+                            for link in located['sources']:
+                                matching=verified_matches(job,link['url'],public_boards.fetcher,link['employer_url'],original['markets'])
+                                if len(matching)!=1:
+                                    raise RetrievalError('unverified','Progressive recovery needs one exact match; ambiguous text is not associated. Use Find full description to review candidates.')
+                                full=matching[0];ev=full['evidence']
+                                update={'id':job_id,'description':full['description'],'description_status':'public_verified','description_source_url':full['source_url'],
+                                        'description_source':{**{k:ev[k] for k in ('url','sha256','bytes','at')},'kind':'public_verified','posting_url':full['source_url']}}
+                                self.store.upsert_job(update,run_id,market['id']);job.update(update)
+                                descriptions[job_id]=job;counters['descriptions']+=1
+                                counters['sources'].append({'source':'Independent official recovery','status':'success','count':1})
+                                break
+                        except (SourceError,ProviderError,ValueError) as recovery_error:
+                            counters['sources'].append({'source':'Independent official recovery','status':getattr(recovery_error,'status','failed'),'count':0,'reason':str(recovery_error)})
+            if plan['supplementary_research'] and profile.get('secondary') and not original.get('intent_confirmed'):
                 # Only professional public search terms, no CV, contact details or feedback.
                 research = call('research', 'Use real web tools to retrieve up to 3 official vacancy descriptions. Preserve exact source URL, title, company, location, verified requisition ID or empty string. Quote evidence. If inaccessible or tools absent return no jobs and explain.',
                                 {'queries': plan['research_queries'], 'role_families': plan['role_families']}, research=True)
@@ -378,6 +460,12 @@ class Hunter:
                 counters['sources'].append({'source': 'AI web research', 'status': 'success' if accepted else 'unverified', 'count': accepted, 'reason': '; '.join(research['limitations']) or 'Verified tool retrieval required', 'at': now()})
                 counters['controlled_source_requests']=fetcher.requests
             if descriptions:
+                if market and original.get('intent_confirmed'):
+                    wrong=[j for j in descriptions if country_of(descriptions[j],original['markets'])!=market['id']]
+                    for j in wrong:
+                        counters['warnings'].append('Description retained; no assessment under a different or unverified country: '+j)
+                        descriptions.pop(j)
+            if descriptions:
                 counters['available_descriptions']=len(descriptions)
                 counters['description_ids']=list(descriptions)
                 analysis = call('evaluation', EVALUATION_TASK,
@@ -403,11 +491,12 @@ class Hunter:
             if cancel.is_set():
                 raise ProviderError('Canceled by user.')
             success = any(item['status'] == 'success' for item in counters['sources'])
-            status = 'partial' if counters['warnings'] or (candidates and not counters['evaluated']) else 'completed'
+            limited=any(s['status'] not in ('success','not_enabled') for s in counters['sources'])
+            status = 'partial' if limited or counters['warnings'] or (candidates and not counters['evaluated']) else 'completed'
             if not success:
                 status = 'failed'
             self.store.set('provider_verified:' + profile['provider'], {'at': now(), 'inference': True})
-            return finish('Run finished; review evidence and missing information',status)
+            return finish('Ready to review — evidence and missing information retained',status)
         except Exception as exc:
             counters['job_ids'] = list(locals().get('candidates', {}))
             reason = str(exc) if isinstance(exc, (ProviderError, SourceError, ValueError)) else 'Unexpected local error; run failed and collected jobs preserved.'

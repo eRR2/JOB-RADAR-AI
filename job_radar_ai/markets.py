@@ -42,7 +42,9 @@ def country_of(job, markets):
     """
     tokens = {str(job.get('country', '')).strip().casefold()}
     tokens.update(x.strip().casefold() for x in str(job.get('location', '')).split(','))
-    aliases = {'DE': {'germany', 'deutschland'}, 'NL': {'netherlands', 'nederland', 'the netherlands'}}
+    aliases = {'DE': {'germany', 'deutschland','deu'}, 'NL': {'netherlands', 'nederland', 'the netherlands','nld'},
+               'US':{'usa','united states of america'},'GB':{'uk','gbr','great britain'},'CA':{'can'},
+               'AU':{'aus'},'IN':{'ind'},'BR':{'bra'},'FR':{'fra'}}
     found = [m['id'] for m in markets if tokens & ({m['country'].casefold(), m['id'].casefold()} | aliases.get(m['id'], set()))]
     return found[0] if len(found) == 1 else None
 
@@ -63,8 +65,16 @@ def migrated_profile(profile):
 
 
 def market_profile(profile, market, store):
-    value = {k: v for k, v in profile.items() if k not in REGIONAL and k not in ('weights', 'markets', 'market_migration')}
+    value = {k: v for k, v in profile.items() if k not in REGIONAL and k not in ('weights', 'markets', 'market_migration','legacy_profile','intent_review_edits')}
     value['market'] = market
+    if profile.get('intent'):
+        value['intent']={**profile['intent'],'markets':[m for m in profile['intent']['markets'] if m['id']==market['id']],
+                         'preferences':[p for p in profile['intent']['preferences'] if not p['scope'] or p['scope']==market['id']]}
+        # Raw multi-country prose and archived settings stay in local storage.
+        # Only the reviewed, scoped intent is authoritative for new inference.
+        if profile.get('intent_confirmed'):
+            for key in ('objectives','seniority','leadership','industries','strengths','followup_answers','looking_for'):
+                value.pop(key,None)
     value['region'] = market['country']
     value['hard_requirements'] = '\n'.join(filter(None, [profile.get('hard_requirements', ''), market['hard_requirements']]))
     value['_preference_revision'] = store.preference_revision()
