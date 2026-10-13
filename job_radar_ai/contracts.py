@@ -32,6 +32,8 @@ EVALUATION = obj({
     'hr': obj({'assessment': string(), 'strengths': array(string(1000)), 'gaps': array(string(1000)), 'interview_risks': array(string(1000))}),
 })
 SCHEMAS = {
+    'session_strategy': obj({'strategy':string(3000),'role_families':array(string(300),12),'markets':array(obj({'market_id':string(2),'linkedin_queries':array(QUERY,8),'web_queries':array(string(300),8)}),6)}),
+    'enrichment':obj({'candidate_ids':array(string(250),40),'reason':string(1500)}),
     'session_brief': obj({'background':array(string(700),12),'direction':string(1500),'country_preferences':array(obj({'country_id':string(2),'conditions':array(string(800),15)}),6)}),
     'priority_v52': obj({'assessments': array(obj({'job_id': string(250), 'category': enum('direct','transferable','stretch','unrelated','needs_verification'), 'recommend': {'type':'boolean'}, 'priority': enum('exceptional','strong','consider','weak','unsuitable'), 'next_step': string(3000), 'critical_gap': {'type':'boolean'}, 'gaps': array(string(1000)), 'evidence': array(EVIDENCE)}),20)}),
     'brief_v5': obj({'professional_background':array(string(1000)), 'career_direction':string(4000)}),

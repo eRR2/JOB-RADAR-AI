@@ -34,6 +34,12 @@ There is no understanding-approval screen or technical preference form. Keep the
 original text, actual demonstrated capabilities and country/employment conditions.
 No universal profession, employer or country defaults.
 
+The active engine plans all selected markets once, discovers vacancies before selective
+source enrichment, then evaluates in country-isolated batches. Direct LinkedIn transport
+requires saved consent and is separate from indexed web. Research Diagnostics exposes only
+actual run/source/call records, without extra inference. A single-market worker must honor
+that market. Do not start a live acceptance search without explicit user permission.
+
 Every new search creates a verified local backup and clears all research results,
 descriptions, assessments, plans, queries, caches, reports, histories, job-specific
 Applied/Rejected/Obsolete and temporary internal flags. Only CV/background, original

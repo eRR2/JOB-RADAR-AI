@@ -25,6 +25,35 @@ backs up and replaces the complete session, including job-specific Applied/Rejec
 
 ## Research and recommendations
 
+### Discovery-first engine
+
+One anonymous background is reused while the CV/goals/preferences/learning signature is
+unchanged. One private multi-market strategy supplies role families and source queries.
+Selected markets are forwarded to the worker and researched in round-robin order before
+any enrichment or assessment. Consented direct LinkedIn search uses the existing budgeted
+transport; indexed LinkedIn discovery is separately reported. A 429 stops direct requests
+for this session, without blocking independent employer/indexed discovery or bypassing denial.
+
+The bounded total is 900 seconds: strategy 120, discovery 480, enrichment 150, evaluation 150.
+Unused earlier time is not needed to unlock later phases; each phase has a reserved allocation.
+Private calls remain at most 60 seconds and web calls 90; no timed-out call is retried.
+Each market gets one indexed discovery call and up to two productive follow-ups. There is no
+total vacancy quota. Source budgets remain enforced. Enrichment selection batches contain up
+to 40 actual candidates; only selected candidates incur new description requests. Suitability
+evaluation runs after discovery, in country-isolated batches of 20, rotating through scopes.
+Calls: 0/1 anonymous brief + 1 strategy + 1–3 web calls per selected market + ceil(N/40)
+enrichment selections + sum(ceil(scope_jobs/20)) assessment calls, bounded by phase time and
+a hard ceiling of 28 invocations. Unfinished candidates remain honestly unassessed.
+
+Canonical LinkedIn job IDs and transport-noise normalization deduplicate observed URL
+variants without merging requisition identities. Missing country/description stays unverified,
+not discarded. Discard reasons, per-phase/source outcomes, actual queries, request counts,
+AI call duration/timeouts and provider-reported token counts live in the existing Run payload.
+The collapsible Research Diagnostics view exposes those records without new AI calls, prompts
+or CV text. Timeout tool observations with exact LinkedIn identities can still be retained;
+other already saved findings always survive. Broad real research quality is still subject to
+one explicitly authorized live acceptance search; offline tests are not evidence of that quality.
+
 Changed career input uses the existing strict geographic-provenance interpreter with at most
 one evidence-only correction; unchanged validated intent requires no new interpretation call.
 An anonymous professional background is durable extracted user knowledge, keyed to current
@@ -43,13 +72,13 @@ Observed partial text and snippets retain provenance but are never relabeled as 
 Controlled original-source retrieval respects robots/access rules and exact posting identity.
 No per-vacancy AI description resolver or full ATS/HR generation runs in this workflow.
 
-Provider limits: 60s private calls, 90s web calls, 300s outer window; no automatic retries.
+Provider limits: 60s private calls, 90s web calls, 900s phase-aware outer window; no automatic retries.
 Identical observations are deduplicated and unchanged assessments reused only inside this
 session. Research is instructed not to repeat earlier queries; successive low-novelty batches
-without worthwhile new avenues stop. No arbitrary total query/vacancy ceiling was introduced.
+without worthwhile new avenues stop. No arbitrary total vacancy ceiling was introduced.
 Reported tokens, when available, come from structured provider events; no savings percentage.
 
-## Focused evidence
+## Original simplification evidence
 
 - 10 session/engine tests: real SQL reset, verified backup/fail-closed behavior, detached feedback,
   active/expired restrictions, stale writes and late real denials, blocked-worker return,
@@ -70,7 +99,7 @@ as solved by measured live evidence. A future short real smoke needs user approv
 
 No main merge, Release, second-PC modification or new runtime dependency.
 
-## Developer activation and browser check
+## Original simplification activation and browser check
 
 The same developer workspace was launched in skill mode at 127.0.0.1:8767. A new
 verified private pre-search backup retained all 59 historical jobs and four runs;

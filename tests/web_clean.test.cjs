@@ -60,3 +60,10 @@ test('intent provenance failure shows its reason without unrelated login advice'
   const page=run('statusPanel().text');assert.match(page,/preferred_location_not_supported/);
   assert.doesNotMatch(page,/login|subscription|usage limits/);
 });
+test('diagnostics exposes real call and source outcomes, stays collapsible across refresh',()=>{
+  const {run}=fixture();run(`state.runs=[{status:'partial',payload:{usage:{ai_invocations:4,model_seconds:12,web_actions:2},diagnostics:{started_at:'2026-10-13',elapsed_seconds:12,total_budget_seconds:900,phase:'evaluation',country:'Germany',completed_phases:['strategy','discovery','enrichment'],counts:{discovered:3,accepted:2,duplicates:1,discarded:0,evaluated:0},descriptions:{full:0,partial:0,snippet_only:2},linkedin_direct:[{operation:'search',country:'Germany',requests:1,http_status:429,status:'restricted'}],ai_calls:[{kind:'priority_v52',phase:'evaluation',country:'Germany',seconds:4,timeout_category:'provider_call_timeout'}],stop:{phase:'evaluation',reason:'time_window'}}}}];`);
+  let panel=run('researchDiagnostics()');assert.equal(panel.tag,'details');assert.equal(panel.attributes.open,undefined);
+  assert.match(panel.text,/Research Diagnostics|LinkedIn direct/);assert.match(panel.text,/429/);assert.match(panel.text,/provider_call_timeout/);assert.match(panel.text,/Token usage not supplied/);
+  panel.handlers.toggle({target:{open:true}});panel=run('researchDiagnostics()');assert.equal(panel.attributes.open,'');
+  run(`state.runs[0].payload.usage.reported_tokens={input_tokens:123};`);assert.match(run('researchDiagnostics().text'),/input_tokens 123/);
+});

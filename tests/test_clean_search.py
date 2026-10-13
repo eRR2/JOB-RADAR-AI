@@ -28,6 +28,8 @@ class ScriptedAI:
         self.calls.append((kind,task,context,kwargs))
         self.telemetry={}
         if kind=='session_brief':return dict(background=['Electrical systems architecture and team leadership'],direction='Broader technical ownership',country_preferences=[])
+        if kind=='session_strategy':return dict(strategy='Actual capabilities and credible progression',role_families=['Technical ownership'],markets=[dict(market_id=m['id'],linkedin_queries=[],web_queries=['Systems ownership '+m['country']]) for m in context['markets']])
+        if kind=='enrichment':return dict(candidate_ids=[j['id'] for j in context['jobs']],reason='Observed ownership evidence')
         if kind=='research_v5':
             self.researches+=1
             cs=[candidate(123456),candidate(123457)]
@@ -116,12 +118,12 @@ class CleanSessionTests(unittest.TestCase):
         self.assertFalse(jobs['linkedin:123457']['preliminary']['recommend'])
         self.assertIn('optical',jobs['linkedin:123457']['preliminary']['next_step'].lower())
         self.assertEqual(sum(k=='priority_v52' for k,_,_,_ in ai.calls),1)
-        self.assertEqual(ai.researches,3)
+        self.assertEqual(ai.researches,2)  # Repeated identities/queries exhaust this avenue early.
         self.assertTrue(any('Fresh systems responsibility query' in c.get('previous_queries',[]) for k,_,c,_ in ai.calls if k=='research_v5'))
         self.assertTrue(all(o['timeout']<=90 for _,_,_,o in ai.calls))
         for kind,_,context,opts in ai.calls:
             if opts.get('research'):self.assertNotIn(CV,json.dumps(context))
-        self.assertIn('Titles alone',ai.calls[1][1])
+        self.assertTrue(any('Titles alone' in task for _,task,_,_ in ai.calls))
 
     def test_restart_after_reset_does_not_reintroduce_old_jobs(self):
         (self.root/'version.json').write_text(json.dumps({'version':'5.3.0-preview'}))

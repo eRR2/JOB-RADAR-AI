@@ -1,5 +1,5 @@
 const $=s=>document.querySelector(s);
-let state,tab='recommended',view='discover',careerDraft;
+let state,tab='recommended',view='discover',careerDraft,diagnosticsOpen=false;
 function el(name,attrs={},...children){
   const node=document.createElement(name);
   for(const [k,v] of Object.entries(attrs)){
@@ -16,7 +16,7 @@ const tag=(text,kind='')=>el('span',{class:'tag '+kind},text);
 const priority=job=>({exceptional:4,strong:3,consider:2,weak:1,unsuitable:0})[job.preliminary?.priority]||0;
 function recommended(job){return !!job.preliminary?.recommend&&!job.preliminary?.critical_gap&&job.availability!=='closed_banner_observed'&&job.freshness?.status!=='confirmed_closed';}
 function evidenceLabel(job){
-  if(job.description_source?.kind==='public_verified'&&job.description)return 'Full source description verified';
+  if(['public_verified','linkedin'].includes(job.description_source?.kind)&&job.description)return 'Full source description verified';
   if(job.partial_source_text)return 'Partial source text verified · full description unverified';
   if(job.source_observations?.length)return 'Preliminary · search snippet only';
   return 'Description unavailable';
@@ -38,10 +38,32 @@ function statusPanel(){
   if(problem)return el('div',{class:'status-box error',role:'alert'},el('strong',{},'AI research could not finish'),el('p',{},problem.message),el('p',{},providerFailure?'No automatic retry. Check the provider error above before another search.':'No automatic retry. '+(problem.category==='time_window'?'The processing time limit was reached.':problem.category==='canceled'?'The operation was canceled.':'Review the specific validation reason above; your saved preferences remain unchanged.')));
   return null;
 }
+function researchDiagnostics(){
+  const run=state.runs[0],d=run?.payload?.diagnostics;if(!d)return null;
+  const usage=run.payload.usage||{},c=d.counts||{},descriptions=d.descriptions||{};
+  const table=(head,rows)=>el('div',{class:'report-history'},el('table',{},el('thead',{},el('tr',{},head.map(h=>el('th',{scope:'col'},h)))),el('tbody',{},rows.map(row=>el('tr',{},row.map(value=>el('td',{},value??'Not reported')))))));
+  return el('details',{class:'panel research-diagnostics',...(diagnosticsOpen?{open:''}:{}),onToggle:event=>diagnosticsOpen=event.target.open},el('summary',{},'Research Diagnostics'),
+    el('p',{},'Started: '+new Date(d.started_at).toLocaleString()+' · '+Math.round(d.elapsed_seconds)+' / '+d.total_budget_seconds+' seconds'),
+    el('p',{},'Phase: '+d.phase+' · '+(d.country||'All selected markets')+' · '+run.status),
+    el('p',{},'Completed phases: '+(d.completed_phases||[]).join(', ')),
+    el('p',{},'Discovered '+c.discovered+' · accepted '+c.accepted+' · duplicates '+c.duplicates+' · discarded '+c.discarded+' · evaluated '+c.evaluated),
+    el('p',{},'Descriptions: full '+descriptions.full+' · partial '+descriptions.partial+' · snippet only '+descriptions.snippet_only),
+    el('p',{},'AI invocations '+usage.ai_invocations+' · model seconds '+Math.round(usage.model_seconds||0)+' · web-tool actions '+usage.web_actions),
+    usage.reported_tokens?el('p',{},'Provider-reported tokens: '+Object.entries(usage.reported_tokens).map(([k,v])=>k+' '+v).join(' · ')):el('p',{class:'muted'},'Token usage not supplied by provider.'),
+    d.stop?el('p',{},'Stopped: '+d.stop.phase+' · '+d.stop.reason+(d.stop.stage?' · '+d.stop.stage:'')):null,
+    el('h3',{},'Country coverage'),table(['Market','Indexed passes','Outcome'],Object.entries(d.market_outcomes||{}).map(([id,v])=>[id,v.indexed_passes,v.status])),
+    el('h3',{},'Queries performed'),table(['Source','Country','Query','Location'],(d.queries||[]).map(q=>[q.source,q.country,q.query,q.location||'—'])),
+    ...(d.failures||[]).map(f=>el('p',{},'Failed: '+f.phase+' / '+f.country+' · '+f.reason+' · '+f.stage)),
+    el('h3',{},'LinkedIn direct requests'),(d.linkedin_direct||[]).length?table(['Operation','Country','Requests','HTTP','Outcome'],d.linkedin_direct.map(r=>[r.operation,r.country,r.requests,r.http_status,r.status+(r.cache_hit?' · cached':'')+(r.reason?' · '+r.reason:'')])):el('p',{},'No direct LinkedIn request ran.'),
+    el('h3',{},'Employer-site requests'),table(['Endpoint','Parameters','HTTP','Outcome'],(d.employer_requests||[]).map(r=>[r.endpoint,JSON.stringify(r.parameters||{}),r.http_status,r.status])),
+    el('h3',{},'AI calls'),table(['Call','Phase / country','Seconds','Outcome / timeout'],(d.ai_calls||[]).map(r=>[r.kind,r.phase+' / '+(r.country||'all'),r.seconds,r.timeout_category||r.status])),
+    el('h3',{},'Discarded candidates'),table(['URL','Reason'],(d.discarded_candidates||[]).map(r=>[r.url,r.reason])),
+    ...(run.payload.warnings||[]).map(w=>el('p',{class:'muted'},w)));
+}
 function discover(){
   let jobs=state.jobs.filter(j=>tab==='all'||recommended(j)).sort((a,b)=>priority(b)-priority(a)||(a.title||'').localeCompare(b.title||''));
   return el('div',{},el('div',{class:'page-title'},el('h1',{},'Your next career move'),el('p',{},'Fresh research shaped by your CV and career goals.')),
-    statusPanel(),button('Search with AI',()=>act('/api/search',{}),'primary',working()||!state.profile),
+    statusPanel(),button('Search with AI',()=>act('/api/search',{}),'primary',working()||!state.profile),researchDiagnostics(),
     el('p',{class:'inline-note'},'Each new search clears previous results and research history. Your CV, original career text, preferences and learned feedback stay.'),
     el('div',{class:'tabs result-tabs',role:'group','aria-label':'Search results'},...[["recommended","Recommended"],["all","All Opportunities"]].map(([id,title])=>button(title,()=>{tab=id;render();},id===tab?'active':''))),
     jobs.length?el('div',{class:'job-grid'},jobs.map(card)):el('div',{class:'empty'},el('h3',{},state.jobs.length?'No strong recommendations established yet':'Ready for a fresh search'),el('p',{},state.jobs.length?'All discovered vacancies remain under All Opportunities. Weak matches are not promoted to fill this view.':state.cv.text?'Your saved CV and career goals are ready. Search with AI starts a fresh research session.':'Upload your CV and describe your next step in My next move.')));
@@ -69,7 +91,7 @@ function preferences(){
     const f=event.target.files[0];if(!f)return;if(f.size>10000000)return toast('Use a CV up to 10 MB.',true);
     try{const r=await fetch('/api/cv',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Radar-CSRF':state.csrf,'X-Filename':'CV'+f.name.slice(f.name.lastIndexOf('.'))},body:await f.arrayBuffer()});const data=await r.json();if(!r.ok)throw Error(data.error.message);await refresh();toast('CV extracted locally. Review its text before AI processing.');}catch(e){toast(e.message,true);}
   }});
-  return el('div',{},el('h1',{},'My next move'),statusPanel(),el('div',{class:'panel'},el('h2',{},'Your experience'),upload,state.cv.filename?el('p',{},state.cv.filename):null,state.cv.text?el('details',{},el('summary',{},'Preview extracted CV'),el('p',{class:'prose'},state.cv.text)):null),
+  return el('div',{},el('h1',{},'My next move'),statusPanel(),researchDiagnostics(),el('div',{class:'panel'},el('h2',{},'Your experience'),upload,state.cv.filename?el('p',{},state.cv.filename):null,state.cv.text?el('details',{},el('summary',{},'Preview extracted CV'),el('p',{class:'prose'},state.cv.text)):null),
     el('div',{class:'panel'},el('h2',{},'Where you want to go'),text,provider,
     el('p',{},state.providers[provider.value]?.status||'Provider not checked'),el('p',{class:'muted'},'A separately authenticated subscription CLI is required. Desktop login alone does not prove inference works; no API-key fallback.'),
     el('label',{class:'check'},consent,'Allow the selected AI to process my CV and career preferences'),el('label',{class:'check'},web,'Allow anonymous public web research'),

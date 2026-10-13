@@ -22,6 +22,7 @@ class LinkedIn:
         self.last_request = 0
         self.last_cached = False
         self.denied_in_run = False
+        self.deadline = None
 
     def invoke(self, args, key, ttl):
         self.last_cached = False
@@ -47,6 +48,8 @@ class LinkedIn:
         previous=self.store.get('linkedin_last_attempt')
         elapsed=(datetime.now(timezone.utc)-datetime.fromisoformat(previous)).total_seconds() if previous else float('inf')
         delay = max(0, self.budgets['spacing']-elapsed)
+        remaining = self.deadline-time.monotonic()-delay if self.deadline is not None else 30
+        if remaining<=0:raise SourceError('LinkedIn phase budget reached; no request sent.')
         if self.cancel.wait(delay):
             raise ProviderError('Canceled by user.')
         self.store.set('linkedin_pending', True)
@@ -55,7 +58,7 @@ class LinkedIn:
         self.last_request = time.monotonic()
         try:
             code, output, error = bounded_process(binary + ['run', str(self.cli)] + args + ['--format', 'json'],
-                timeout=30, cancel=self.cancel)
+                timeout=min(30,remaining), cancel=self.cancel)
         except ProviderError:
             if self.store.v5:
                 self.store.set('linkedin_access', restriction(None, interrupted=True, session_only=True))
