@@ -6,6 +6,7 @@ from job_radar_ai.sources import PublicFetcher
 from job_radar_ai.providers import ProviderError
 from job_radar_ai.markets import query_locations
 from job_radar_ai.linkedin import LinkedIn,SourceError
+from job_radar_ai.session_search import initial_plan
 
 ScriptedAI=fixtures.ScriptedAI
 PROFILE,CV=fixtures.PROFILE,fixtures.CV
@@ -28,7 +29,8 @@ class DiscoveryFirstTests(unittest.TestCase):
         self.assertLess(max(discoveries),stages.index('enrichment'))
         self.assertLess(max(discoveries),stages.index('priority_v52'))
         self.assertEqual({c['market']['id'] for k,_,c,_ in ai.calls if k=='research_v5'},{'DE','NL'})
-        self.assertEqual(stages.count('session_strategy'),1)
+        self.assertNotIn('session_strategy',stages)
+        self.assertNotIn('session_brief',stages)
         self.assertGreater(payload['diagnostics']['counts']['duplicates'],0)
 
     def test_selected_market_only_and_start_forwards_selection(self):
@@ -41,13 +43,7 @@ class DiscoveryFirstTests(unittest.TestCase):
 
     def test_direct_linkedin_is_invoked_and_429_does_not_stop_indexed_research(self):
         self.store.set('profile',{**copy.deepcopy(PROFILE),'linkedin_consent':True})
-        class PlannedAI(ScriptedAI):
-            def run(self,kind,task,context,**opts):
-                if kind=='session_strategy':
-                    self.calls.append((kind,task,context,opts));self.telemetry={}
-                    return dict(strategy='Evidence-led progression',role_families=['Technical ownership'],markets=[dict(market_id=m['id'],linkedin_queries=[dict(query='technical system leadership',location=query_locations(m)[0],remote='any',reason='Actual capabilities')],web_queries=['Official career roles '+m['country']]) for m in context['markets']])
-                return super().run(kind,task,context,**opts)
-        ai=PlannedAI()
+        ai=ScriptedAI()
         failure=json.dumps({'error':'ACCESS_RESTRICTED HTTP 429','http_status':429})
         with patch('job_radar_ai.linkedin.executable',return_value=['bun.exe']),patch('job_radar_ai.linkedin.bounded_process',return_value=(1,'',failure)) as transport:
             payload=self.run_search(ai)
@@ -121,3 +117,30 @@ class DiscoveryFirstTests(unittest.TestCase):
             with self.assertRaisesRegex(SourceError,'phase budget'):source.invoke(['search'],'synthetic',0)
             process.assert_not_called()
         self.assertIsNone(self.store.get('linkedin_pending'))
+
+    def test_direct_discoveries_exist_before_first_ai_call_and_survive_failure(self):
+        profile={**copy.deepcopy(PROFILE),'linkedin_consent':True,'intent':{'summary':'Technical ownership','preferences':[dict(topic='career_direction',value='Systems leadership',scope='',origin='explicit')]}}
+        self.store.set('profile',profile)
+        class FailedAI(ScriptedAI):
+            def run(inner,kind,task,context,**opts):
+                self.assertEqual(kind,'research_v5')
+                self.assertEqual(len(self.store.jobs()),1)
+                inner.telemetry={'cli_started':True,'event_count':2,'event_types':{'thread.started':1,'turn.started':1}}
+                raise ProviderError('CLI execution failed.','execution_error')
+        failure=FailedAI()
+        result=json.dumps({'results':[dict(id='123460',title='Observed role',company='Synthetic',location='Berlin, Germany')]})
+        with patch('job_radar_ai.linkedin.executable',return_value=['bun.exe']),patch('job_radar_ai.linkedin.bounded_process',return_value=(0,result,'')):
+            payload=self.run_search(failure)
+        self.assertEqual(len(self.store.jobs()),1)
+        self.assertEqual(payload['diagnostics']['stop']['phase'],'discovery')
+        self.assertEqual(payload['diagnostics']['ai_calls'][0]['cli_events']['event_types']['turn.started'],1)
+        self.assertEqual(payload['usage']['ai_invocations'],1)
+        self.assertEqual(self.store.get('profile'),profile)
+
+    def test_initial_queries_use_saved_intent_and_exact_confirmed_locations(self):
+        profile={**copy.deepcopy(PROFILE),'intent':{'summary':'Unused summary','preferences':[dict(topic='career_direction',value='Systems ownership; Technical leadership',scope='',origin='explicit'),dict(topic='management_progression',value='Architecture team leadership',scope='NL',origin='explicit')]}}
+        plan=initial_plan(profile,profile['markets'])
+        de,nl=plan['markets']
+        self.assertEqual({q['query'] for q in de['linkedin_queries']},{'Systems ownership','Technical leadership'})
+        self.assertIn('Architecture team leadership',{q['query'] for q in nl['linkedin_queries']})
+        for m,p in zip(profile['markets'],plan['markets']):self.assertEqual({q['location'] for q in p['linkedin_queries']},set(query_locations(m)))

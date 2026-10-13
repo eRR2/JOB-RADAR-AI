@@ -57,6 +57,8 @@ function researchDiagnostics(){
     el('h3',{},'LinkedIn direct requests'),(d.linkedin_direct||[]).length?table(['Operation','Country','Requests','HTTP','Outcome'],d.linkedin_direct.map(r=>[r.operation,r.country,r.requests,r.http_status,r.status+(r.cache_hit?' · cached':'')+(r.reason?' · '+r.reason:'')])):el('p',{},'No direct LinkedIn request ran.'),
     el('h3',{},'Employer-site requests'),table(['Endpoint','Parameters','HTTP','Outcome'],(d.employer_requests||[]).map(r=>[r.endpoint,JSON.stringify(r.parameters||{}),r.http_status,r.status])),
     el('h3',{},'AI calls'),table(['Call','Phase / country','Seconds','Outcome / timeout'],(d.ai_calls||[]).map(r=>[r.kind,r.phase+' / '+(r.country||'all'),r.seconds,r.timeout_category||r.status])),
+    el('h3',{},'Inference CLI events'),table(['Call','CLI started','Event count','Event types / timing'],(d.ai_calls||[]).map(r=>[r.kind,r.cli_events?.cli_started===undefined?'Not recorded':String(r.cli_events.cli_started),r.cli_events?.event_count,JSON.stringify(r.cli_events||{})])),
+    d.linkedin_permission===false?el('p',{class:'muted'},'Direct LinkedIn permission is off. Enable it in My next move to allow guest requests.'):null,
     el('h3',{},'Discarded candidates'),table(['URL','Reason'],(d.discarded_candidates||[]).map(r=>[r.url,r.reason])),
     ...(run.payload.warnings||[]).map(w=>el('p',{class:'muted'},w)));
 }
@@ -86,7 +88,7 @@ function detail(job){
 function preferences(){
   const p=state.profile||{},text=el('textarea',{rows:8,'aria-label':'Your career goals',value:careerDraft??p.looking_for??p.objectives??'',onInput:event=>careerDraft=event.target.value,placeholder:'Describe your next career move, countries and locations, working conditions and anything important to you.'});
   const provider=el('select',{'aria-label':'AI subscription'},...['codex','claude'].map(id=>el('option',{value:id},id==='codex'?'Codex subscription':'Claude Code subscription')));provider.value=p.provider||'codex';
-  const consent=el('input',{type:'checkbox',checked:!!p.consent}),web=el('input',{type:'checkbox',checked:!!p.secondary});
+  const consent=el('input',{type:'checkbox',checked:!!p.consent}),web=el('input',{type:'checkbox',checked:!!p.secondary}),direct=el('input',{type:'checkbox',checked:!!p.linkedin_consent});
   const upload=el('input',{type:'file',accept:'.pdf,.docx','aria-label':'Upload CV',onChange:async event=>{
     const f=event.target.files[0];if(!f)return;if(f.size>10000000)return toast('Use a CV up to 10 MB.',true);
     try{const r=await fetch('/api/cv',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Radar-CSRF':state.csrf,'X-Filename':'CV'+f.name.slice(f.name.lastIndexOf('.'))},body:await f.arrayBuffer()});const data=await r.json();if(!r.ok)throw Error(data.error.message);await refresh();toast('CV extracted locally. Review its text before AI processing.');}catch(e){toast(e.message,true);}
@@ -95,7 +97,8 @@ function preferences(){
     el('div',{class:'panel'},el('h2',{},'Where you want to go'),text,provider,
     el('p',{},state.providers[provider.value]?.status||'Provider not checked'),el('p',{class:'muted'},'A separately authenticated subscription CLI is required. Desktop login alone does not prove inference works; no API-key fallback.'),
     el('label',{class:'check'},consent,'Allow the selected AI to process my CV and career preferences'),el('label',{class:'check'},web,'Allow anonymous public web research'),
-    button('Search with AI',()=>act('/api/career-search',{looking_for:text.value,provider:provider.value,consent:consent.checked,secondary:web.checked,linkedin_consent:!!p.linkedin_consent}),'primary',working()),
+    el('label',{class:'check'},direct,'Allow direct LinkedIn guest requests (stops on access restrictions)'),
+    button('Search with AI',()=>act('/api/career-search',{looking_for:text.value,provider:provider.value,consent:consent.checked,secondary:web.checked,linkedin_consent:direct.checked}),'primary',working()),
     el('p',{class:'muted'},'The original text is authoritative. No understanding-approval screen. Every search starts with empty results.')));
 }
 function render(){

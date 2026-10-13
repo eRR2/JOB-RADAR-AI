@@ -34,7 +34,8 @@ There is no understanding-approval screen or technical preference form. Keep the
 original text, actual demonstrated capabilities and country/employment conditions.
 No universal profession, employer or country defaults.
 
-The active engine plans all selected markets once, discovers vacancies before selective
+The active engine seeds queries locally from saved intent/markets, without a blocking
+planning model call. Consented direct LinkedIn starts before inference. It discovers before selective
 source enrichment, then evaluates in country-isolated batches. Direct LinkedIn transport
 requires saved consent and is separate from indexed web. Research Diagnostics exposes only
 actual run/source/call records, without extra inference. A single-market worker must honor

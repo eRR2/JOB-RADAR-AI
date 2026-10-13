@@ -49,12 +49,15 @@ class ProviderTests(unittest.TestCase):
 
     def test_process_timeout_and_cancel(self):
         import sys
+        launched=[]
         with self.assertRaises(ProviderError):
-            bounded_process([sys.executable, '-c', 'import time; time.sleep(5)'], timeout=.1)
+            bounded_process([sys.executable, '-c', 'import time; time.sleep(5)'], timeout=.1,on_started=lambda:launched.append(True))
+        self.assertEqual(launched,[True])
         stop = threading.Event()
         stop.set()
         with self.assertRaises(ProviderError):
-            bounded_process([sys.executable, '-c', 'print(1)'], cancel=stop)
+            bounded_process([sys.executable, '-c', 'print(1)'], cancel=stop,on_started=lambda:launched.append(True))
+        self.assertEqual(launched,[True])
 
     def test_cancel_terminates_an_already_running_process(self):
         import sys

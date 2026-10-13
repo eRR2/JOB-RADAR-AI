@@ -21,6 +21,16 @@ class CleanHTTPTests(unittest.TestCase):
         app.store.upsert_job({'id':'old','url':'https://example.org/old','title':'Old discovery'})
         return app,{'X-Radar-CSRF':app.csrf,'Origin':self.url}
 
+    def test_direct_permission_is_saved_only_when_explicitly_submitted(self):
+        app,headers=self.seed()
+        self.assertFalse(app.store.get('profile').get('linkedin_consent',False))
+        with patch('job_radar_ai.server.Provider') as ai,patch.object(SessionSearch,'start',return_value=1):
+            self.request('/api/career-search',dict(looking_for=PROFILE['looking_for'],provider='codex',consent=True,secondary=True,linkedin_consent=True),headers).close()
+            ai.assert_not_called()
+        current=app.store.get('profile')
+        self.assertTrue(current['linkedin_consent'])
+        self.assertEqual(current['markets'],PROFILE['markets']);self.assertEqual(current['cv_text'],CV)
+
     def test_new_search_resets_actual_database_before_worker_start(self):
         app,headers=self.seed();old_worker=app.hunter.store
         app.store.start_run('codex');app.store.set('linkedin_pending',True)

@@ -67,3 +67,10 @@ test('diagnostics exposes real call and source outcomes, stays collapsible acros
   panel.handlers.toggle({target:{open:true}});panel=run('researchDiagnostics()');assert.equal(panel.attributes.open,'');
   run(`state.runs[0].payload.usage.reported_tokens={input_tokens:123};`);assert.match(run('researchDiagnostics().text'),/input_tokens 123/);
 });
+test('direct LinkedIn permission is explicit, defaults off and is submitted by the search button',()=>{
+  const {run}=fixture();run(`let sent;act=(path,data)=>{sent=data};`);
+  const page=run('preferences()'),label=nodes(page).find(n=>n.tag==='label'&&n.text.includes('Allow direct LinkedIn'));
+  assert.ok(label);const input=nodes(label).find(n=>n.tag==='input');assert.equal(input.checked,false);
+  input.checked=true;nodes(page).find(n=>n.tag==='button'&&n.text==='Search with AI').handlers.click();
+  assert.equal(run('sent.linkedin_consent'),true);
+});

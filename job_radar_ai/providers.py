@@ -64,7 +64,7 @@ def kill_tree(process):
             pass
 
 
-def bounded_process(argv, prompt='', cwd=None, timeout=240, cancel=None, env=None, on_line=None, max_output=4_000_000):
+def bounded_process(argv, prompt='', cwd=None, timeout=240, cancel=None, env=None, on_line=None, max_output=4_000_000, on_started=None):
     if cancel and cancel.is_set():
         raise ProviderError('Canceled by user.')
     options = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {'start_new_session': True}
@@ -73,6 +73,7 @@ def bounded_process(argv, prompt='', cwd=None, timeout=240, cancel=None, env=Non
                                    cwd=cwd, env=env, shell=False, **options)
     except OSError as exc:
         raise ProviderError('CLI could not start. Check installation and executable access.') from exc
+    if on_started:on_started()
     chunks = [bytearray(), bytearray()]
     exceeded = threading.Event()
 
@@ -186,6 +187,8 @@ class Provider:
             raise ProviderError('Claude output is not valid structured JSON.') from exc
 
     def run(self, kind, task, context, cancel=None, research=False, timeout=240):
+        telemetry = {'cli_started':False,'event_count':0,'event_types':{},'item_types':{},'web_calls':0,'observed_urls':[],'observations':[],'actions':[]}
+        self.telemetry=telemetry
         binary = executable(self.name)
         if not binary:
             raise ProviderError(f'{self.name} CLI is not installed. Install and sign in separately.')
@@ -203,7 +206,7 @@ class Provider:
                   'Use actual job responsibilities, domain and evidence, not title similarity. '
                   + ('Use supported public web search and page opening/reading for actual vacancies and original employer publications. Prioritize indexed LinkedIn discovery. Do not send CV text, names, contacts or identifying career history to public queries. Never open a publisher under supplied active restriction; indexed search evidence is independent. Respect robots/access rules; no retries, authentication bypass or alternate denied endpoints. Report page-read failures honestly. ' if research else 'Do not use any tools. ')
                   + '\nTASK: ' + task + '\nCONTEXT (DATA):\n' + json.dumps(context, ensure_ascii=False))
-        telemetry = {'web_calls': 0, 'observed_urls': [], 'observations': [], 'actions': [], 'event_count': 0}
+        began=time.monotonic()
         forbidden = threading.Event()
 
         def event_line(line):
@@ -211,11 +214,20 @@ class Provider:
                 event = json.loads(line)
             except ValueError:
                 return
+            if not isinstance(event,dict):return
             telemetry['event_count'] += 1
+            event_type=event.get('type','unknown')
+            if event_type not in ('thread.started','turn.started','item.started','item.updated','item.completed','turn.completed','turn.failed','error'):event_type='other'
+            telemetry['event_types'][event_type]=telemetry['event_types'].get(event_type,0)+1
+            elapsed=round(time.monotonic()-began,3)
+            telemetry.setdefault('first_event_seconds',elapsed);telemetry['last_event_seconds']=elapsed
             if event.get('type') == 'turn.completed' and isinstance(event.get('usage'), dict):
                 telemetry['usage'] = {k:v for k,v in event['usage'].items() if k in ('input_tokens','cached_input_tokens','output_tokens') and type(v) is int and v >= 0}
             item = event.get('item', {})
             tool = item.get('type', '')
+            if tool:
+                safe_type=tool if tool in ('reasoning','agent_message','web_search','command_execution','file_change','mcp_tool_call','collab_tool_call') else 'other'
+                telemetry['item_types'][safe_type]=telemetry['item_types'].get(safe_type,0)+1
             if tool == 'web_search':
                 telemetry['web_calls'] += int(event.get('type') == 'item.completed')
                 if event.get('type') == 'item.completed':
@@ -247,7 +259,8 @@ class Provider:
                 command[-1:-1] = ['-c', 'model_reasoning_effort="low"']
             self.telemetry = telemetry
             code, output, error = bounded_process(command,
-                prompt, cwd=directory, timeout=timeout, cancel=cancel, env=env, on_line=event_line if self.name == 'codex' else None)
+                prompt, cwd=directory, timeout=timeout, cancel=cancel, env=env, on_line=event_line if self.name == 'codex' else None,
+                on_started=lambda:telemetry.update(cli_started=True))
             self.telemetry = telemetry
             if forbidden.is_set():
                 raise ProviderError('Provider attempted a tool outside the permitted research contract; result refused.')

@@ -20,17 +20,8 @@ from .linkedin import LinkedIn, SourceError
 from .access import linkedin_state
 from .contracts import validate
 
-PHASE_SECONDS = {'strategy':120,'discovery':480,'enrichment':150,'evaluation':150}
+PHASE_SECONDS = {'discovery':600,'enrichment':150,'evaluation':150}
 MAX_AI_CALLS = 28
-STRATEGY = '''Create ONE intelligent strategy covering EVERY supplied market independently.
-Use actual demonstrated capabilities, seniority, responsibilities, desired career progression,
-leadership potential and learned preferences. Explore adjacent industries and credible next
-steps, not just current-title variants. Titles alone do not establish fit; specialist domains
-need real evidence. Generate diverse useful LinkedIn keywords and indexed-web/employer-career
-queries. Locations must be supplied confirmed locations; never broaden geography. No fixed
-employer defaults, identifying history or personal data in queries. Return exactly one entry
-per requested market. This private planning call uses no tools.'''
-STRATEGY += ' When direct_linkedin_enabled is true, include useful LinkedIn queries for each market.'
 RESEARCH = '''DISCOVERY ONLY: research real vacancies using supported web search, LinkedIn indexed
 FIRST plus independent employer careers and indexed web. Follow the one supplied strategy and
 cover its realistic role families and geography. Explore credible adjacent industries and
@@ -49,6 +40,32 @@ observed source evidence and the actual CV/next-career direction. Prioritize dem
 responsibilities, credible progression and leadership; do not choose title-only specialist
 mismatches. Missing description is uncertainty, not automatic rejection. Return exact supplied
 candidate_ids in priority order. This is enrichment selection, NOT a recommendation. No tools.'''
+
+
+def initial_plan(profile,markets,brief=None):
+    """Transport seeds from saved intent, not a new semantic interpretation or fixed role list."""
+    intent=profile.get('intent') or {}
+    entries=intent.get('preferences',[])
+    plans=[];families=[]
+    for market in markets:
+        values=[p['value'] for p in entries if p.get('topic') in ('career_direction','management_progression','target_roles','role_families') and p.get('scope','') in ('',market['id']) and p.get('origin') in ('explicit','cv_evidenced')]
+        if not values:values=[(brief or {}).get('direction') or intent.get('summary') or profile.get('looking_for') or profile.get('objectives','')]
+        terms=[]
+        for value in values:
+            for part in re.split(r'[;\n]',value):
+                part=re.sub(r'https?://\S+|\b[^\s@]+@[^\s@]+\.[^\s@]+|(?<!\w)\+?\d[\d ()-]{7,}\d',' ',part)
+                places={place for m in profile['markets'] for place in [m['country'],*m['locations']]}
+                for place in sorted(places,key=len,reverse=True):
+                    part=re.sub(r'(?<!\w)'+re.escape(place)+r'(?!\w)',' ',part,flags=re.I)
+                part=' '.join(part.split()).strip(' ,-.:')
+                if len(part)>160:part=part[:161].rsplit(' ',1)[0][:160]
+                if part and part not in terms:terms.append(part)
+        # Each query location is copied from the confirmed market, never inferred from a city.
+        queries=[dict(query=term,location=location,remote='any',reason='Saved confirmed career direction') for location in query_locations(market) for term in terms]
+        plans.append({'market_id':market['id'],'linkedin_queries':queries,'web_queries':terms})
+        families.extend(term for term in terms if term not in families)
+    return {'strategy':'Expand the saved career direction intelligently using observed responsibilities and confirmed geography; evaluate actual CV fit privately later. No invented preferences.',
+            'role_families':families,'markets':plans}
 
 
 class SessionSearch(Hunter):
@@ -73,11 +90,11 @@ class SessionSearch(Hunter):
         self.public_fetcher=fetcher
         budgets={**DEFAULT_BUDGETS,**self.store.get('budgets',{})}
         linkedin=LinkedIn(self.root,self.store,cancel,budgets)
-        d={'started_at':now(),'elapsed_seconds':0,'total_budget_seconds':duration,'phase':'strategy',
+        d={'started_at':now(),'elapsed_seconds':0,'total_budget_seconds':duration,'phase':'discovery',
            'completed_phases':[],'country':'','phase_budgets':{k:round(v*duration/900,2) for k,v in PHASE_SECONDS.items()},
            'queries':[],'linkedin_direct':[],'employer_requests':[],'ai_calls':[],
            'counts':{'discovered':0,'accepted':0,'duplicates':0,'discarded':0,'evaluated':0},
-           'discarded_candidates':[],'market_outcomes':{},'descriptions':{}}
+            'discarded_candidates':[],'market_outcomes':{},'descriptions':{},'linkedin_permission':bool(self.store.get('profile').get('linkedin_consent'))}
         payload={'kind':'clean_search','job_ids':[],'warnings':[], 'diagnostics':d,
                  'usage':{'ai_invocations':0,'model_seconds':0,'web_actions':0,'cached_assessments':0},'requests':0}
         queries=set();unsuccessful=set();links={};native=[];observed_urls=set()
@@ -148,6 +165,7 @@ class SessionSearch(Hunter):
                 record['seconds']=round(time.monotonic()-began,3)
                 payload['usage']['model_seconds']+=record['seconds']
                 telemetry=getattr(ai,'telemetry',{})
+                record['cli_events']={k:telemetry[k] for k in ('cli_started','event_count','event_types','item_types','first_event_seconds','last_event_seconds') if k in telemetry}
                 if research:
                     payload['usage']['web_actions']+=telemetry.get('web_calls',0)
                     record['web_actions']=telemetry.get('web_calls',0)
@@ -228,29 +246,32 @@ class SessionSearch(Hunter):
 
         try:
             if not markets:raise ValueError('Requested market is not in saved preferences.')
-            phase('strategy')
             global_learning=(self.store.get('learned:global',[]) or [])+(self.store.get('learned',[]) or [])
             knowledge={'cv_text':profile['cv_text'],'original_request':profile.get('looking_for',''),'intent':profile.get('intent'),'markets':all_markets,
                        'learned':{m['id']:self.store.get('learned:'+m['id'],[]) for m in all_markets},'global_learned':global_learning,'feedback':self.store.get('persistent_feedback',[])}
             signature=hashlib.sha256(json.dumps(knowledge,sort_keys=True).encode()).hexdigest()
             brief=self.store.get('professional_background') if self.store.get('knowledge_signature')==signature else None
-            if not brief:
-                brief=call('session_brief','Extract anonymous demonstrated capabilities, seniority and desired NEXT direction. No names, contacts, previous employers, copied CV passages or distinctive history. Preserve separate geographic/working conditions and scoped feedback. No tools.',knowledge)
-                self.store.set('professional_background',brief);self.store.set('knowledge_signature',signature)
-            strategy=call('session_strategy',STRATEGY,{'background':brief,'markets':[{**m,'allowed_linkedin_locations':query_locations(m)} for m in markets],'direct_linkedin_enabled':bool(profile.get('linkedin_consent'))})
-            validate('session_strategy',strategy)
+            strategy=initial_plan(profile,markets,brief)
             plans={v['market_id']:v for v in strategy['markets']}
             if len(plans)!=len(strategy['markets']) or set(plans)!={m['id'] for m in markets}:raise ValueError('Research strategy must cover every selected market exactly once.')
             for m in markets:
                 for q in plans[m['id']]['linkedin_queries']:
                     if not q['query'].strip() or q['query'].startswith('-') or not valid_query(q,m,scope_for(profile,m)):raise ValueError('Strategy query/location invalid or outside saved preferences; no source request sent.')
             phase('discovery')
+            # Every consented market gets its first direct attempt before ANY inference.
+            linkedin.deadline=phase_end-45*len(markets)
+            for m in markets:
+                d['country']=m['country']
+                if plans[m['id']]['linkedin_queries'] and available():direct(plans[m['id']]['linkedin_queries'][0],m)
+            if not brief:
+                brief={'background':[],'direction':'; '.join(strategy['role_families']),'country_preferences':[]}
+                payload['warnings'].append('No current anonymous background cached; web discovery uses saved intent seeds. CV suitability is assessed privately later.')
             pending=list(markets);passes={m['id']:0 for m in markets};avenues={m['id']:[] for m in markets}
             while pending and available():
                 m=pending.pop(0);d['country']=m['country'];plan=plans[m['id']];n=passes[m['id']];passes[m['id']]+=1
                 visit_end=min(phase_end,time.monotonic()+(phase_end-time.monotonic())/(len(pending)+1))
                 linkedin.deadline=visit_end-45  # Reserve indexed discovery for this market too.
-                if n<len(plan['linkedin_queries']) and linkedin.deadline-time.monotonic()>1:direct(plan['linkedin_queries'][n],m)
+                if n+1<len(plan['linkedin_queries']) and linkedin.deadline-time.monotonic()>1:direct(plan['linkedin_queries'][n+1],m)
                 before=d['counts']['accepted'];previous_queries=set(queries)
                 try:
                     result=call('research_v5',RESEARCH,{'background':brief['background'],'career_direction':brief['direction'],'strategy':strategy['strategy'],'role_families':strategy['role_families'],
@@ -274,6 +295,8 @@ class SessionSearch(Hunter):
                     obs=getattr(ai,'telemetry',{}).get('observations',[]) if exc.category=='time_window' else []
                     candidates=[dict(url=o['url'],title=o.get('title',''),company='',location='',country='',country_quote='',description_sources=[]) for o in obs if o.get('url') and linkedin_job_id(o['url'])]
                     indexed({'jobs':candidates},getattr(ai,'telemetry',{}))
+                    if exc.category in ('execution_error','subscription_usage_limit','provider_rate_limit','model_access'):
+                        raise  # Provider-wide failure is not another market's search avenue.
                 progress('Discovery coverage saved · '+m['country'])
             if pending:payload['warnings'].append('Discovery phase budget reached; saved findings retained.')
             if not self.store.jobs() and d.get('failures') and all(v['status'] not in ('avenues_exhausted','more_avenues') for v in d['market_outcomes'].values()):

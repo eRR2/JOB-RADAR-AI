@@ -28,20 +28,23 @@ backs up and replaces the complete session, including job-specific Applied/Rejec
 ### Discovery-first engine
 
 One anonymous background is reused while the CV/goals/preferences/learning signature is
-unchanged. One private multi-market strategy supplies role families and source queries.
+unchanged. Initial queries come locally from saved career intent and confirmed markets;
+there is no mandatory strategy/brief model call. Consented direct LinkedIn discovery for
+each selected market starts before any inference. Without a current anonymous background,
+web discovery receives only saved public query seeds; actual CV evaluation remains private.
 Selected markets are forwarded to the worker and researched in round-robin order before
 any enrichment or assessment. Consented direct LinkedIn search uses the existing budgeted
 transport; indexed LinkedIn discovery is separately reported. A 429 stops direct requests
 for this session, without blocking independent employer/indexed discovery or bypassing denial.
 
-The bounded total is 900 seconds: strategy 120, discovery 480, enrichment 150, evaluation 150.
+The bounded total is 900 seconds: discovery 600, enrichment 150, evaluation 150.
 Unused earlier time is not needed to unlock later phases; each phase has a reserved allocation.
 Private calls remain at most 60 seconds and web calls 90; no timed-out call is retried.
 Each market gets one indexed discovery call and up to two productive follow-ups. There is no
 total vacancy quota. Source budgets remain enforced. Enrichment selection batches contain up
 to 40 actual candidates; only selected candidates incur new description requests. Suitability
 evaluation runs after discovery, in country-isolated batches of 20, rotating through scopes.
-Calls: 0/1 anonymous brief + 1 strategy + 1–3 web calls per selected market + ceil(N/40)
+Calls: 1–3 web calls per selected market + ceil(N/40)
 enrichment selections + sum(ceil(scope_jobs/20)) assessment calls, bounded by phase time and
 a hard ceiling of 28 invocations. Unfinished candidates remain honestly unassessed.
 
@@ -50,7 +53,10 @@ variants without merging requisition identities. Missing country/description sta
 not discarded. Discard reasons, per-phase/source outcomes, actual queries, request counts,
 AI call duration/timeouts and provider-reported token counts live in the existing Run payload.
 The collapsible Research Diagnostics view exposes those records without new AI calls, prompts
-or CV text. Timeout tool observations with exact LinkedIn identities can still be retained;
+or CV text. CLI process-start confirmation, safe event/item type counts and first/last event
+timings survive timeout. Historical calls without this telemetry say not recorded, not zero.
+Direct LinkedIn permission is explicit in My next move and is never enabled implicitly.
+Timeout tool observations with exact LinkedIn identities can still be retained;
 other already saved findings always survive. Broad real research quality is still subject to
 one explicitly authorized live acceptance search; offline tests are not evidence of that quality.
 
