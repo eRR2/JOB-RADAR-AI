@@ -112,7 +112,7 @@ class Store:
 
     def fresh_session(self):
         """Verified backup, knowledge snapshot, then an atomic disposable-state reset."""
-        from .access import active
+        from .access import active, durable_restriction, linkedin_key, explicit_denial
         folder = self.path.parent / 'backups'
         folder.mkdir(exist_ok=True)
         backup_path = folder / ('before-search-' + secrets.token_hex(8) + '.sqlite3')
@@ -136,12 +136,13 @@ class Store:
             # Genuine third-party denials live outside the disposable session.
             for k,v in settings.items():
                 if k == 'linkedin_access' or k.startswith('public:access:'):
-                    if v and v.get('http_status') and v.get('state') != 'request_in_progress' and active(v):knowledge[k]=v
+                    if durable_restriction(k,v):knowledge[k]=v
                 elif k.startswith('public:stop:'):
                     access = settings.get('public:access:' + k.removeprefix('public:stop:'))
-                    if not access or active(access):knowledge[k]=v
-                elif k == 'linkedin_stop' and not settings.get('linkedin_access'):
-                    # Legacy explicit denial with no trustworthy expiry remains protected.
+                    if linkedin_key(k):
+                        if explicit_denial(v) or durable_restriction(k,access):knowledge[k]=v
+                    elif not access or active(access):knowledge[k]=v
+                elif k == 'linkedin_stop' and explicit_denial(v):
                     knowledge[k]=v
             token = secrets.token_hex(16)
             knowledge['search_session'] = token
@@ -166,7 +167,8 @@ class Store:
         return [r['key'].removeprefix('public:access:') for r in rows if active(json.loads(r['value']))]
 
     def set(self, key, value):
-        if self.session_token is not None and (key == 'linkedin_access' or key.startswith('public:access:')) and isinstance(value,dict) and value.get('http_status') and value.get('state') in ('restricted','cooling_down'):
+        from .access import durable_restriction
+        if self.session_token is not None and (key == 'linkedin_access' or key.startswith('public:access:')) and isinstance(value,dict) and value.get('http_status') and durable_restriction(key,value):
             # A late real denial is safety knowledge, never a stale job result.
             unbound = self.bound(None)
             with unbound.db() as db:
@@ -312,7 +314,7 @@ class Store:
         if self.v5 and self.get('linkedin_pending'):
             from .access import restriction
             if not self.get('linkedin_access'):
-                self.set('linkedin_access',restriction(None,interrupted=True))
+                self.set('linkedin_access',restriction(None,interrupted=True,session_only=True))
         with self.db() as db:
             db.execute("UPDATE runs SET status='failed',finished=?,stage='Interrupted process; request extent may be unknown' WHERE status='running'", (now(),))
 

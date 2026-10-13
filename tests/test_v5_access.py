@@ -31,7 +31,11 @@ class AccessTests(unittest.TestCase):
                 self.assertIsNone(store.get('linkedin_stop'))
                 store.set('linkedin_access',restriction(429,clock=datetime.now(timezone.utc)-timedelta(days=2)))
                 with self.assertRaises(SourceError):source.invoke([], 'two',0)
+                other=LinkedIn(tmp,store,threading.Event(),{'requests':20,'spacing':0})
+                with self.assertRaises(SourceError):other.invoke([], 'three',0)
                 self.assertEqual(process.call_count,1)
+            self.assertEqual(linkedin_state(store)['state'],'restricted')
+            store.fresh_session()
             self.assertEqual(linkedin_state(store)['state'],'available')
 
     def test_interruption_and_public_publisher_cooldown(self):
@@ -41,7 +45,8 @@ class AccessTests(unittest.TestCase):
             self.assertEqual(linkedin_state(store)['state'],'request_in_progress')
             self.assertIsNone(store.get('linkedin_access'))
             store.recover_runs()
-            self.assertEqual(linkedin_state(store)['state'],'cooling_down')
+            self.assertEqual(linkedin_state(store)['state'],'restricted')
+            self.assertTrue(store.get('linkedin_access')['session_only'])
             with patch('job_radar_ai.sources.public_url') as url:
                 url.return_value.hostname='careers.example.com'
                 url.return_value.scheme='https';url.return_value.netloc='careers.example.com';url.return_value.path='/';url.return_value.query=''

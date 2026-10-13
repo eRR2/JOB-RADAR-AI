@@ -42,9 +42,12 @@ Feedback is detached from old job rows with its country and original user note.
 First activation clears old pre-simplification results after backup. No stale worker
 can import results into the replacement session.
 
-Active genuine third-party restrictions remain protected outside disposable state.
-Never bypass robots, authentication or unexpired LinkedIn 429. Expired structured
-cooldowns are not permanent blocks. Late real denials may extend global restrictions;
+LinkedIn's locally generated 429/interruption block lasts only for the current search.
+Each validated manual search clears old local cooldown/pending/stop state through the
+shared workflow used by both buttons; no one-time migration or automatic retry.
+Never bypass robots, authentication, explicit denials or a publisher's unexpired
+Retry-After. Other publishers keep their access policy. Late local LinkedIn 429 cannot
+block a replacement session; late explicit server restrictions may extend restrictions;
 late job/results/cache writes are refused. No same-run source retry, credential
 harvesting, alternate denied endpoint, proxy or unauthorized browser automation.
 

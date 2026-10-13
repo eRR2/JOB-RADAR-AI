@@ -9,7 +9,8 @@ from test_intent_evidence import multi_country,TEXT,CV
 from job_radar_ai.intent import validate_intent,EvidenceError
 from job_radar_ai.session_search import SessionSearch
 from job_radar_ai.linkedin import LinkedIn,SourceError
-from job_radar_ai.access import active
+from job_radar_ai.access import active, restriction, linkedin_state
+from job_radar_ai.store import SessionExpired
 
 
 class SearchHotfixTests(unittest.TestCase):
@@ -33,6 +34,11 @@ class SearchHotfixTests(unittest.TestCase):
         for route in ('/api/search','/api/career-search'):
             with self.subTest(route=route):
                 app,profile,headers=self.seed()
+                app.store.set('linkedin_access',restriction(429))
+                app.store.set('linkedin_pending',True)
+                app.store.set('linkedin_stop','HTTP 429 access_restricted')
+                app.store.set('public:access:www.linkedin.com',restriction(429))
+                app.store.set('public:stop:www.linkedin.com','HTTP 429')
                 data={} if route=='/api/search' else dict(looking_for=TEXT,provider='codex',consent=True,secondary=True,linkedin_consent=False)
                 with patch('job_radar_ai.server.Provider') as ai,patch.object(app.store,'fresh_session',wraps=app.store.fresh_session) as reset,patch.object(SessionSearch,'start',return_value=1) as start:
                     self.request(route,data,headers).close()
@@ -44,6 +50,8 @@ class SearchHotfixTests(unittest.TestCase):
                 self.assertEqual(current['cv_text'],CV)
                 self.assertEqual(app.store.get('learned:DE'),[{'text':'Country-specific ownership preference'}])
                 self.assertEqual(app.store.jobs(),[])
+                for key in ('linkedin_access','linkedin_pending','linkedin_stop','public:access:www.linkedin.com','public:stop:www.linkedin.com'):
+                    self.assertIsNone(app.store.get(key),key)
 
     def test_changed_valid_goals_interpret_before_reset_once(self):
         app,profile,headers=self.seed();text=TEXT+' Prefer broader technical ownership.'
@@ -80,6 +88,43 @@ class SearchHotfixTests(unittest.TestCase):
             fresh=LinkedIn(app.root,app.store,threading.Event(),{'requests':10,'spacing':0})
             with self.assertRaises(SourceError):fresh.invoke(['detail','123456'],'synthetic',0)
             request.assert_called_once()
+
+    def test_headerless_429_stops_session_but_next_manual_search_can_attempt(self):
+        app,profile,headers=self.seed()
+        token,_=app.store.fresh_session();old=app.store.bound(token)
+        failure=json.dumps({'error':'HTTP 429 access_restricted','http_status':429})
+        def source(store):return LinkedIn(app.root,store,threading.Event(),{'requests':10,'spacing':0})
+        with patch('job_radar_ai.linkedin.executable',return_value=['bun.exe']),patch('job_radar_ai.linkedin.bounded_process',return_value=(1,'',failure)) as request:
+            for _ in range(2):
+                with self.assertRaises(SourceError):source(old).invoke(['detail','123456'],'synthetic',0)
+            request.assert_called_once()
+            app.store.fresh_session()
+            with self.assertRaises(SessionExpired):old.set('linkedin_access',{'state':'restricted','until':None,'http_status':429,'session_only':True})
+            self.assertIsNone(app.store.get('linkedin_access'))
+            with self.assertRaises(SourceError):source(app.store).invoke(['detail','123456'],'synthetic',0)
+            self.assertEqual(request.call_count,2)
+            self.assertTrue(active(app.store.get('linkedin_access')))
+
+    def test_reset_preserves_explicit_denials_and_other_publisher_429(self):
+        app,profile,headers=self.seed()
+        auth=restriction(401);other=restriction(429)
+        app.store.set('linkedin_access',auth)
+        app.store.set('public:access:publisher.example',other)
+        app.store.set('public:stop:www.linkedin.com','Publisher robots disallow')
+        app.store.fresh_session()
+        self.assertEqual(app.store.get('linkedin_access'),auth)
+        self.assertEqual(app.store.get('public:access:publisher.example'),other)
+        self.assertEqual(app.store.get('public:stop:www.linkedin.com'),'Publisher robots disallow')
+
+    def test_interrupted_and_invalid_retry_after_are_session_only(self):
+        app,profile,headers=self.seed()
+        for state in (restriction(None,interrupted=True,session_only=True),restriction(429,'invalid',session_only=True),restriction(429,'0',session_only=True)):
+            app.store.set('linkedin_access',state)
+            app.store.set('linkedin_pending',True)
+            self.assertTrue(active(linkedin_state(app.store)))
+            app.store.fresh_session()
+            self.assertIsNone(app.store.get('linkedin_access'))
+            self.assertIsNone(app.store.get('linkedin_pending'))
 
 
 class QuoteFormattingTests(unittest.TestCase):

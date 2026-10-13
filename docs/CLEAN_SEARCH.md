@@ -13,8 +13,11 @@ workspace change causes reset to fail closed. Explicit feedback is detached from
 with country, original reasons/note, source title and identity/session provenance. Learned
 preferences and original CV/career text remain untouched; no semantic reinterpretation occurs
 inside reset. All other SQL research tables/cache and disposable settings are deleted atomically.
-Expired structured cooldowns and stale internal flags disappear; active external restrictions
-and genuine unexpired/indefinite publisher denials survive.
+LinkedIn local 429 cooldowns and stale pending/stop flags disappear at every manual search.
+A new 429 stops LinkedIn for that session, without retry; it cannot block the next manual
+search. Explicit unexpired publisher Retry-After and robots/authentication/explicit denials
+remain protected, as do other publishers' active restrictions. Late local LinkedIn 429
+writes from replaced workers are refused.
 
 First activation clears pre-simplification results after backup. Restart preserves the current
 session boundary and cannot resurrect deleted historical results. Each subsequent user search
@@ -93,8 +96,9 @@ Validation errors show their actual category without unrelated login/subscriptio
 
 A verified private database backup preceded the explicitly requested one-time local LinkedIn
 429 maintenance. No legacy LinkedIn blocking keys were present in the actual database at that
-point; unrelated settings/data were unchanged. No automatic reset path was added. A mocked fresh
-429 is recorded, survives the next session reset and prevents another request.
+point; unrelated settings/data were unchanged. The subsequent session-only policy supersedes
+that maintenance: local LinkedIn 429 stops are now discarded by every validated manual search,
+while an explicit unexpired publisher Retry-After survives. No new migration was added.
 
 Focused hotfix verification: 25 Python checks, 6 Node checks and JS syntax passed. Both routes
 were also exercised against a private copy of the actual saved CV/preferences, with a mocked

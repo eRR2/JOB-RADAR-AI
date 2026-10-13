@@ -32,7 +32,7 @@ class LinkedIn:
             return cached
         if self.store.v5:
             if self.store.get('linkedin_pending') and not self.store.get('linkedin_access'):
-                self.store.set('linkedin_access',restriction(None,interrupted=True))
+                self.store.set('linkedin_access',restriction(None,interrupted=True,session_only=True))
             state = linkedin_state(self.store)
             if active(state) or self.denied_in_run:
                 raise SourceError('LinkedIn direct access '+state['state']+'; independent indexed web research remains available.')
@@ -58,7 +58,7 @@ class LinkedIn:
                 timeout=30, cancel=self.cancel)
         except ProviderError:
             if self.store.v5:
-                self.store.set('linkedin_access', restriction(None, previous=self.store.get('linkedin_access'), interrupted=True))
+                self.store.set('linkedin_access', restriction(None, interrupted=True, session_only=True))
             else:
                 self.store.set('linkedin_stop', 'Interrupted/timed-out LinkedIn request; request extent is unknown. No automatic retry.')
             raise
@@ -77,7 +77,7 @@ class LinkedIn:
                     if status is None:
                         match = re.search(r'HTTP (\d{3})', message)
                         status = int(match[1]) if match else None
-                    self.store.set('linkedin_access', restriction(status, failure.get('retry_after'), self.store.get('linkedin_access')))
+                    self.store.set('linkedin_access', restriction(status, failure.get('retry_after'), session_only=True))
                 else:
                     self.store.set('linkedin_stop', message[:500])
             raise SourceError(message[:500])
