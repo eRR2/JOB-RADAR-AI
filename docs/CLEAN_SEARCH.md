@@ -80,3 +80,23 @@ coverage of live job cards, model execution or full accessibility.
 
 A focused provider-event fixture also verified actual usage fields, without inventing
 cost/token values. Current total: 17 focused Python checks and 5 Node checks, plus JS syntax.
+
+## Search-start hotfix
+
+Both UI search routes now share the career-search workflow. Unchanged confirmed goals
+reuse the exact saved countries/locations/conditions without intent inference or revalidation,
+even when the uploaded CV differs from the old profile copy. Whitespace-only goal formatting
+retains the original text. Changed input is strictly validated before one session reset;
+failed interpretation leaves the previous profile and session intact. Quote validation permits
+line wrapping and wider source passages while refusing foreign/invented locations or paraphrase.
+Validation errors show their actual category without unrelated login/subscription advice.
+
+A verified private database backup preceded the explicitly requested one-time local LinkedIn
+429 maintenance. No legacy LinkedIn blocking keys were present in the actual database at that
+point; unrelated settings/data were unchanged. No automatic reset path was added. A mocked fresh
+429 is recorded, survives the next session reset and prevents another request.
+
+Focused hotfix verification: 25 Python checks, 6 Node checks and JS syntax passed. Both routes
+were also exercised against a private copy of the actual saved CV/preferences, with a mocked
+worker: one reset each, zero intent AI invocations, unchanged country/condition records.
+No live Codex inference or LinkedIn/source request was made; real research remains unverified.

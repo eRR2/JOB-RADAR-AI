@@ -55,3 +55,8 @@ test('failed provider shows actionable message without successful fake jobs',()=
   assert.match(run('discover().text'),/No automatic retry/);
   assert.equal(run('state.jobs.length'),0);
 });
+test('intent provenance failure shows its reason without unrelated login advice',()=>{
+  const {run}=fixture();run(`state.operation={status:'failed',category:'clarification_or_validation',message:'Germany (DE): preferred_location_not_supported'};`);
+  const page=run('statusPanel().text');assert.match(page,/preferred_location_not_supported/);
+  assert.doesNotMatch(page,/login|subscription|usage limits/);
+});

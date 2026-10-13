@@ -17,7 +17,7 @@ class CleanHTTPTests(unittest.TestCase):
 
     def seed(self):
         app=self.server.app
-        app.store.set('profile',PROFILE);app.store.set('cv_text',CV)
+        app.store.set('profile',{**PROFILE,'intent_confirmed':True});app.store.set('cv_text',CV)
         app.store.upsert_job({'id':'old','url':'https://example.org/old','title':'Old discovery'})
         return app,{'X-Radar-CSRF':app.csrf,'Origin':self.url}
 
@@ -27,7 +27,7 @@ class CleanHTTPTests(unittest.TestCase):
         with patch.object(SessionSearch,'start',return_value=42):
             self.request('/api/search',{},headers).close()
         self.assertEqual(app.store.jobs(),[]);self.assertEqual(app.store.runs(),[])
-        self.assertIsNone(app.store.get('linkedin_pending'));self.assertEqual(app.store.get('profile'),PROFILE)
+        self.assertIsNone(app.store.get('linkedin_pending'));self.assertEqual(app.store.get('profile')['markets'],PROFILE['markets'])
         with self.assertRaises(SessionExpired):old_worker.upsert_job({'id':'stale'})
 
     def test_removed_actions_cannot_invoke_old_research_path(self):
@@ -43,9 +43,8 @@ class CleanHTTPTests(unittest.TestCase):
         app.store.set('profile',profile);app.store.set('cv_text',INTENT_CV)
         with patch('job_radar_ai.server.Provider') as provider,patch.object(SessionSearch,'start',return_value=7):
             self.request('/api/career-search',dict(looking_for=INTENT_TEXT,provider='codex',consent=True,secondary=True,linkedin_consent=False),headers).close()
-            app.operation_thread.join(2)
             provider.return_value.run.assert_not_called()
-        self.assertEqual(app.operation['status'],'completed')
+        self.assertIsNone(app.operation)
         self.assertEqual(app.store.jobs(),[])
         self.assertEqual(app.store.get('profile')['looking_for'],INTENT_TEXT)
 
@@ -56,10 +55,11 @@ class CleanHTTPTests(unittest.TestCase):
         current=INTENT_CV+' New demonstrated capability.';app.store.set('cv_text',current)
         with patch('job_radar_ai.server.Provider') as provider,patch.object(SessionSearch,'start',return_value=7):
             provider.return_value.run.return_value=multi_country()
-            self.request('/api/search',{},headers).close();app.operation_thread.join(2)
-            self.assertEqual(provider.return_value.run.call_args.args[2]['cv_text'],current)
-        self.assertEqual(app.operation['status'],'completed')
+            self.request('/api/search',{},headers).close()
+            provider.return_value.run.assert_not_called()
+        self.assertIsNone(app.operation)
         self.assertEqual(app.store.get('profile')['cv_text'],current)
+        self.assertEqual(app.store.get('profile')['markets'],profile['markets'])
 
     test_cross_origin_wrong_host_and_missing_csrf_writes_are_refused=test_server.HTTPTests.test_cross_origin_wrong_host_and_missing_csrf_writes_are_refused
     test_dashboard_loads_and_private_files_are_not_served=test_server.HTTPTests.test_dashboard_loads_and_private_files_are_not_served

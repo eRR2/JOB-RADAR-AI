@@ -34,7 +34,8 @@ function statusPanel(){
   const run=state.runs[0],operation=state.operation;
   if(working())return el('div',{class:'status-box',role:'status'},el('strong',{},operation?.status==='running'?'Interpreting your career request':run?.stage),el('p',{},'Findings appear as they are saved.'),button('Cancel',()=>act('/api/cancel',{})));
   const problem=operation?.status==='failed'?operation:run?.payload.provider_error;
-  if(problem)return el('div',{class:'status-box error',role:'alert'},el('strong',{},'AI research could not finish'),el('p',{},problem.message),el('p',{},'Current findings are retained. No automatic retry. Check your provider login, access or usage limits before another search.'));
+  const providerFailure=['subscription_usage_limit','model_access','provider_rate_limit','execution_error'].includes(problem?.category);
+  if(problem)return el('div',{class:'status-box error',role:'alert'},el('strong',{},'AI research could not finish'),el('p',{},problem.message),el('p',{},providerFailure?'No automatic retry. Check the provider error above before another search.':'No automatic retry. '+(problem.category==='time_window'?'The processing time limit was reached.':problem.category==='canceled'?'The operation was canceled.':'Review the specific validation reason above; your saved preferences remain unchanged.')));
   return null;
 }
 function discover(){

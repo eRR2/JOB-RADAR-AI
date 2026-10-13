@@ -7,10 +7,10 @@ from .markets import validate_markets
 TASK = '''Interpret the actual CV and the user's verbatim next-move text, including preserved legacy texts if supplied.
 No universal profession, countries, salary, leadership or industry defaults. Preserve missing information as unknown.
 Keep the review concise: only the important preferences and a short summary, not a long questionnaire.
-ALL evidence quotes MUST be verbatim contiguous copies from the original user text or CV,
-including original spelling, case and whitespace. Never paraphrase, translate or reconstruct a quote.
-Each geographic quote must include its country and every preferred/secondary location,
-and must not include another proposed country's geography. Use a country-specific passage.
+ALL evidence quotes MUST copy contiguous original words and punctuation from user text or CV.
+Whitespace/line wrapping may differ; never paraphrase, translate or reconstruct a quote.
+Each geographic quote must support its country and every preferred/secondary location.
+A wider original passage is allowed, but each place must belong to that country's own clause/block.
 Use the source's actual country/place spellings in geographic fields; never add cities based
 on a country alone. If the source does not establish a location, leave it unknown and ask.
 Experience must cite exact CV quotes. Preference scope is empty for global, otherwise a configured market country code;
@@ -36,16 +36,18 @@ class EvidenceError(ValueError):
         self.issues=issues
         labels={'DE':'Germany (DE)','NL':'Netherlands (NL)'}
         details='; '.join(dict.fromkeys(labels.get(i.get('country'),i.get('country') or 'Intent')+': '+i['category'] for i in issues))
-        super().__init__('Evidence provenance could not be verified — '+details+'. Use verbatim source wording; explicitly include the country and requested locations in your next-move text, then interpret again. No profile or search was applied.')
+        super().__init__('Evidence provenance could not be verified: '+details+'. The AI evidence must match your original next-move text or CV and support each requested location. No profile or search was applied.')
 
 
 def validate_intent(value, cv, text, edits=''):
     validate('intent',value)
     issues=[]
+    def words(value):
+        return ' '.join(value.split())
     def quote_found(quote, source):
-        return bool(quote.strip()) and quote in source
+        return bool(quote.strip()) and words(quote) in words(source)
     def named(name,quote):
-        return bool(name.strip()) and bool(re.search(r'(?<!\w)'+re.escape(name.strip())+r'(?!\w)',quote,re.I))
+        return bool(name.strip()) and bool(re.search(r'(?<!\w)'+re.escape(words(name))+r'(?!\w)',words(quote),re.I))
     for index,item in enumerate(value['experience']):
         if not quote_found(item['quote'],cv):
             issues.append({'path':['experience',index,'quote'],'category':'professional evidence must quote the actual CV'})
@@ -69,10 +71,25 @@ def validate_intent(value, cv, text, edits=''):
             issues.append({'path':path,'country':market['id'],'category':'geographic_quote_not_verbatim'})
         if not named(market['country'],market['quote']):
             issues.append({'path':path,'country':market['id'],'category':'country_not_supported'})
-        if any(other['id']!=market['id'] and named(other['country'],market['quote']) for other in value['markets']):
-            issues.append({'path':path,'country':market['id'],'category':'geographic_country_scope_ambiguous'})
+        scoped_quote=market['quote']
+        # Use original paragraph boundaries even if the AI wrapped the same words differently.
+        if quote_found(scoped_quote,source):
+            original=re.search(r'\s+'.join(re.escape(word) for word in scoped_quote.split()),source)
+            if original:scoped_quote=original.group(0)
+        others=[other['country'] for other in value['markets'] if other['id']!=market['id']]
+        if any(named(country,scoped_quote) for country in others):
+            # Shared source passages are legitimate; foreign places must not be borrowed.
+            names='|'.join(re.escape(m['country']) for m in value['markets'])
+            headings=list(re.finditer(r'(?m)^[ \t]*(?:[-*#]+[ \t]*)?('+names+r')\b',scoped_quote,re.I))
+            blocks=[scoped_quote[h.start():headings[i+1].start() if i+1<len(headings) else len(scoped_quote)] for i,h in enumerate(headings) if h.group(1).casefold()==market['country'].casefold()]
+            blocks=[block for block in blocks if not any(named(country,block) for country in others)]
+            if not blocks:
+                blocks=[part for part in re.split(r'[;\n]|(?<=[.!?])\s+',scoped_quote) if named(market['country'],part) and not any(named(country,part) for country in others)]
+            scoped_quote='\n'.join(blocks)
+            if not scoped_quote:
+                issues.append({'path':path,'country':market['id'],'category':'geographic_country_scope_ambiguous'})
         for group in ('preferred','secondary'):
-            if any(not named(place,market['quote']) for place in market[group]):
+            if any(not named(place,scoped_quote) for place in market[group]):
                 issues.append({'path':path,'country':market['id'],'category':group+'_location_not_supported'})
         if len(market['preferred'])+len(market['secondary'])>10:
             raise ValueError('Keep each confirmed regional scope to ten locations.')

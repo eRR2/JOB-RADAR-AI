@@ -325,7 +325,7 @@ def make_server(root, database, port=8767, skill_mode=False):
                     profile.update({k:data[k] for k in ('provider','consent','linkedin_consent','secondary')})
                 app.store.set('profile',profile)
                 return {'saved':True}
-            if path in ('/api/career-search','/api/intent-analysis','/api/intent-accept','/api/profile','/api/cv','/api/profile-accept','/api/learned','/api/learning-reset','/api/source-reset','/api/budgets','/api/feedback') and (search_active or operation_active):
+            if path in ('/api/career-search','/api/intent-analysis','/api/intent-accept','/api/profile','/api/cv','/api/profile-accept','/api/learned','/api/learning-reset','/api/source-reset','/api/budgets','/api/feedback') and (operation_active or (search_active and not (app.simple and path=='/api/career-search'))):
                 raise ValueError('Wait for or cancel the active AI operation before changing its input or source policy.')
             if path in ('/api/intent-analysis','/api/career-search'):
                 auto_search=path=='/api/career-search'
@@ -345,19 +345,33 @@ def make_server(root, database, port=8767, skill_mode=False):
                     raise ValueError('Keep the edited understanding within 12,000 characters.')
                 evidence_text=text if auto_search else text+'\n'+summary_edit+'\n'+legacy_text(prior)
                 if app.simple and auto_search:
-                    app.new_search_session()
+                    if not raw['secondary']:
+                        raise ValueError('Allow anonymous public web research before starting a search.')
+                    unchanged=prior.get('intent_confirmed') and prior.get('markets') and ' '.join(prior.get('looking_for','').split())==' '.join(text.split())
+                    if unchanged:
+                        # Saved, confirmed preferences are knowledge, not a new AI proposal.
+                        # Updating a CV must not reinterpret or reconstruct those preferences.
+                        profile={**prior,'cv_text':cv,**{k:v for k,v in raw.items() if k!='looking_for'}}
+                        app.new_search_session()
+                        app.operation=None
+                        app.store.set('profile',profile)
+                        return {'run_id':app.hunter.start()}
                 def interpret(cancel):
                     ai=Provider(provider,app.root/'.private/ai')
                     context={'cv_text':cv,'user_text':text,'edited_understanding':summary_edit,'legacy_texts':'' if auto_search else legacy_text(prior)}
                     task=INTENT_TASK+(' V5.1 interpretation is INTERNAL: original user text is authoritative, not a generic summary. No compulsory approval step. Preserve every country-specific condition, exception, exclusion and employer priority from that text. Ask only a genuinely essential ambiguity that prevents meaningful research; all optional unknowns stay unknown.' if auto_search else ' If an edited understanding is supplied, reconcile its changes with the original words. Do not retain contradicted preferences; keep unknowns unknown.')
-                    unchanged=app.simple and auto_search and prior.get('intent_confirmed') and prior.get('looking_for')==text and prior.get('cv_text')==cv
-                    result=prior['intent'] if unchanged else ai.run('intent',task,context,cancel=cancel,timeout=60 if app.simple else 240)
+                    result=ai.run('intent',task,context,cancel=cancel,timeout=60 if app.simple else 240)
                     result=validate_with_evidence_correction(result,cv,evidence_text,lambda invalid,issues:ai.run('intent','Correct ONLY the invalid quote fields identified below, copying a verbatim contiguous passage from the original source. A geographic passage must include its country and every listed preferred/secondary place. Keep all other fields, origins, markets, constraints and preferences exactly unchanged. Never change explicit to inferred. If unsupported, do not invent evidence. No onboarding restart, tools or search.',{**context,'invalid_intent':invalid,'invalid_evidence_fields':issues},cancel=cancel,research=False,timeout=60 if app.simple else 240))
                     if auto_search:
                         if result['questions'] or not result['markets']:
                             raise ValueError('Please clarify your career request: '+'; '.join(result['questions'] or ['Which geographic market should research cover?']))
                         profile=confirm_intent(result,prior,cv,text)
                         profile.update(raw);profile['objectives']=text;profile['intent_summary_edit']=''
+                        if app.simple:
+                            if cancel.is_set():
+                                from .providers import ProviderError
+                                raise ProviderError('Canceled by user.','canceled')
+                            app.new_search_session()
                         app.store.set('profile',profile);app.store.set('proposed_intent',None)
                         app.store.preference_revision(bump=True)
                         app.hunter.start()
@@ -487,8 +501,7 @@ def make_server(root, database, port=8767, skill_mode=False):
                     raise ValueError('Wait for or cancel the profile/provider operation first.')
                 if app.simple:
                     profile=app.store.get('profile') or {}
-                    if app.store.get('cv_text') and app.store.get('cv_text')!=profile.get('cv_text'):
-                        return self.mutate('/api/career-search',{**{k:profile.get(k) for k in ('looking_for','provider','consent')},'secondary':bool(profile.get('secondary')),'linkedin_consent':bool(profile.get('linkedin_consent'))})
+                    return self.mutate('/api/career-search',{**{k:profile.get(k) for k in ('looking_for','provider','consent')},'secondary':bool(profile.get('secondary')),'linkedin_consent':bool(profile.get('linkedin_consent'))})
                 run_id = app.start_search(data.get('market_id','all'))
                 if app.skill_mode and run_id is not None:
                     slot = catchup_slot(app.store.get('profile'))
