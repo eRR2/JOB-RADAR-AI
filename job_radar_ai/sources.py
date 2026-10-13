@@ -155,6 +155,10 @@ class PublicFetcher:
         if cached:
             self.cache_hits += 1
             return cached
+        failed = self.store.cached('failure:' + key, 86400)
+        if failed:
+            self.cache_hits += 1
+            raise RetrievalError(failed['status'], 'Recent source failure cached; no repeated request.', failed.get('http_status'))
         # Same publisher stop survives restarts and cannot be reset by this module.
         group=publisher_group(origin)
         if self.store.v5 and (group in self.denied_in_run or active(self.store.get('public:access:'+group))):
@@ -201,6 +205,8 @@ class PublicFetcher:
                     diagnostic.update(status='received',http_status=result.get('status',200))
                 except RetrievalError as exc:
                     diagnostic.update(status=exc.status,http_status=exc.http_status)
+                    if exc.status in ('failed','unavailable','incomplete'):
+                        self.store.cache('failure:' + key, {'status':exc.status,'http_status':exc.http_status})
                     raise
                 if 'redirect' in result:
                     target = urljoin(current, result['redirect'])

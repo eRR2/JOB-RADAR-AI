@@ -1,41 +1,20 @@
-# V5 operating workflow
+# Clean-search workflow
 
-Launch the verified JOB-RADAR-AI checkout via `scripts/launch-skill.ps1`, automatically
-opening the user's default browser. Use the same generation-5 workspace on later launches.
-Follow launch.md and docs/INSTALL_CODEX_DESKTOP.md for missing runtime/CLI consent and
-own-account login. Never copy credentials or infer CLI readiness from Desktop login.
+1. Open the verified local workspace dashboard through the approved skill launcher.
+2. User uploads their own CV and writes original career goals in one natural-language field.
+3. User grants selected subscription AI/private-processing and anonymous web-research consent.
+4. Search with AI backs up and replaces the entire research session, retaining only
+   CV/background, original preferences, learned knowledge and scoped explicit feedback.
+   Active genuine publisher restrictions survive; stale workers cannot write results.
+5. Changed intent is interpreted internally; unchanged confirmed input is reused.
+   Ask a targeted essential clarification only. Do not invent preference/provenance quotes.
+6. LinkedIn-first indexed research saves genuine observed vacancies progressively.
+   Accessible original-source evidence is validated/reused; no separate per-job AI resolver.
+7. Recommended shows strong next-step suitability with full/preliminary evidence labels.
+   All Opportunities contains the current search only. Unknown freshness stays labeled.
+8. Like / Not relevant is explicit country-scoped learning, detached before the next reset.
+   No application tracker, Obsolete control, Promising tab, ATS report or auto-schedule.
 
-Upload PDF/DOCX, review extracted text, enter one natural-language next-move request,
-choose Search with AI without a compulsory understanding/approval screen.
-No scope/country-code/hard-requirement forms. Provenance remains internal and strict.
-
-AI web research prioritizes indexed LinkedIn vacancy links, then useful employer/public
-sources and credible transferable careers. Background and next direction have different
-roles. No universal professions, industries, employers or salary assumptions.
-Only real observed URLs/facts are imported. Snippets remain preliminary; source-matched
-full descriptions and successful structured evaluation are required for recommendations.
-Unknown country stays unclassified. Original vacancy identity/URL remains preserved.
-
-Like/Dislike/Not relevant automatically teach the vacancy's verified country. Do not
-offer Global or manual scope; broader preferences belong in the natural-language intent.
-Save/Applied/Interview/Offer/Rejected are separate application history, not learning.
-
-Direct LinkedIn requests need separate consent. Respect 429 Retry-After/finite cooldown,
-interrupted request state and publisher denials. No same-run retries, proxies, cookies,
-CAPTCHA bypass, auth tricks or alternate denied routes. Indexed discovery is independent.
-Use caches; description recovery has its own cancelable time window and exact identity
-checks. User-supplied text stays labeled, never publisher-verified.
-
-Reports distinguish indexed discoveries, descriptions, full/preliminary assessments,
-recommendations, duplicates and direct-source restrictions. Model prose is not tool proof.
-Scheduling offers Run now / Remind later / Skip on reopening; no OS task is created.
-Close workspace only when idle. Keep all private data under .private and never publish it.
-
-V5 refuses V1–V4.1 databases. Fresh starts/deletions require explicit authorization;
-never erase another installation, restore historical data or reset cooldowns silently.
-
-V5.1: read docs/V5_1.md. Permit supported page reading alongside search, respecting
-active publisher restrictions. Investigate retained opportunities without rediscovery.
-Use verified/inferred/unknown geographic labels; only verified-country feedback teaches
-that country. Keep promising preliminary leads visible separately from full Recommended.
-Do not reset current V5 data. No compulsory summary approval.
+Use the current checkout's docs/CLEAN_SEARCH.md for boundaries and verification limits.
+No real subscription research smoke without user approval. Do not publish/merge/release
+unless explicitly requested, and always scan staged files and Git history for privacy.

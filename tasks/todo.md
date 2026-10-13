@@ -1,3 +1,16 @@
+# Clean-search simplification
+
+- [x] Verified private backup and original V5.2 patch preservation.
+- [x] Atomic reset preserving original CV/goals/learning; detached explicit feedback.
+- [x] Transactional old-worker refusal and separate real publisher restrictions.
+- [x] Two-tab UI and bounded LinkedIn-first research; no per-job AI description loop.
+- [x] Focused 10 session, 6 HTTP, 1 provider and 5 Node checks; real 59-job copy reset/reopen.
+- [x] Real Chrome empty-dashboard/tab navigation and saved CV/goals; no console errors.
+- [ ] Live model quality/latency and token savings: not tested; approval required.
+- [ ] Stable Release/main merge: not requested.
+
+Historical progress below describes earlier branch behavior.
+
 # V5 delivery
 
 - [x] Verified actual Codex web-tool observations and indexed LinkedIn URLs before rewrite.

@@ -212,6 +212,8 @@ class Provider:
             except ValueError:
                 return
             telemetry['event_count'] += 1
+            if event.get('type') == 'turn.completed' and isinstance(event.get('usage'), dict):
+                telemetry['usage'] = {k:v for k,v in event['usage'].items() if k in ('input_tokens','cached_input_tokens','output_tokens') and type(v) is int and v >= 0}
             item = event.get('item', {})
             tool = item.get('type', '')
             if tool == 'web_search':
@@ -221,6 +223,7 @@ class Provider:
                     for result in item.get('results', []):
                         if isinstance(result, dict) and isinstance(result.get('url'), str):
                             telemetry['observations'].append({k: result[k] for k in ('url', 'title', 'snippet', 'text', 'content', 'type') if isinstance(result.get(k), str)})
+                            telemetry['observations'][-1]['observation_kind'] = 'page_read' if item.get('action', {}).get('type') in ('open','open_page','read') else 'search_snippet'
                 def find_urls(data):
                     if isinstance(data, dict):
                         for key, value in data.items():
@@ -239,7 +242,11 @@ class Provider:
             directory = Path(directory)
             schema_path = directory / 'schema.json'
             schema_path.write_text(json.dumps(SCHEMAS[kind]), encoding='utf-8')
-            code, output, error = bounded_process(self.command(binary, schema_path, research, SCHEMAS[kind]),
+            command = self.command(binary, schema_path, research, SCHEMAS[kind])
+            if self.name == 'codex' and kind == 'priority_v52':
+                command[-1:-1] = ['-c', 'model_reasoning_effort="low"']
+            self.telemetry = telemetry
+            code, output, error = bounded_process(command,
                 prompt, cwd=directory, timeout=timeout, cancel=cancel, env=env, on_line=event_line if self.name == 'codex' else None)
             self.telemetry = telemetry
             if forbidden.is_set():

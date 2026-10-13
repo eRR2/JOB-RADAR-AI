@@ -24,6 +24,9 @@ def profile_signature(profile):
 
 
 EVALUATION_TASK = ('Analyze EVERY supplied full description, not titles. Score each preference dimension from 0 to 100, or null when unknown. '
+    'Require convincing NEXT career progression, direct demonstrated CV capabilities, and explicit important gaps. '
+    'Transferability or title similarity alone is insufficient; critical unmet specialist-domain requirements block strong recommendation. '
+    'Distinguish technical ownership from formal people management. Do not justify almost every role as an optimistic stretch or reject credible cross-industry progression. '
     'Produce separate ATS readiness and HR assessment, exact quotes from original CV and job text, truthful CV changes. '
     'The hard_requirements array refers ONLY to nonempty lines in profile.hard_requirements: copy each exact line once; '
     'if that field is empty return hard_requirements: []. Do NOT put employer job qualifications in that array: assess those in ATS/HR and evidence. '
@@ -40,7 +43,7 @@ def source_context(job):
     # Stored jobs also contain all-market assessments, feedback and application
     # outcomes. Only source facts cross into triage/evaluation; explicit learning
     # arrives through the separately scoped feedback channel.
-    fields=('id','source_id','source','title','company','location','country_id','url','description','availability','evidence','description_obtained','description_source_url','description_status','workplace','remote_verified','location_status')
+    fields=('id','source_id','source','title','company','location','country','country_id','url','description','availability','evidence','description_obtained','description_source_url','description_status','workplace','remote_verified','location_status')
     return {key:job[key] for key in fields if key in job}
 
 

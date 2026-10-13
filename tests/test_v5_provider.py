@@ -11,6 +11,7 @@ class ProviderObservationTests(unittest.TestCase):
         def process(argv,*args,**kwargs):
             callback=kwargs['on_line']
             callback(json.dumps({'type':'item.completed','item':{'type':'web_search','action':{'type':'search','queries':['Synthetic roles France']},'results':[{'type':'text_result','url':'https://employer.example/job','title':'Synthetic role','snippet':'Actual tool snippet France','private_other_field':'not retained'}]}}))
+            callback(json.dumps({'type':'turn.completed','usage':{'input_tokens':100,'cached_input_tokens':40,'output_tokens':20,'invented_cost':99}}))
             schema=Path(argv[argv.index('--output-schema')+1])
             (schema.parent/'result.json').write_text(json.dumps({'jobs':[],'summary':'Model prose claiming imaginary work','limitations':[],'continue_research':False,'next_avenues':[]}),encoding='utf-8')
             return 0,'',''
@@ -21,3 +22,5 @@ class ProviderObservationTests(unittest.TestCase):
             self.assertEqual(provider.telemetry['observations'][0]['snippet'],'Actual tool snippet France')
             self.assertNotIn('private_other_field',provider.telemetry['observations'][0])
             self.assertNotIn('Model prose',str(provider.telemetry))
+            self.assertEqual(provider.telemetry['usage'],{'input_tokens':100,'cached_input_tokens':40,'output_tokens':20})
+            self.assertEqual(provider.telemetry['observations'][0]['observation_kind'],'search_snippet')

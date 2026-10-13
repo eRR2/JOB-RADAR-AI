@@ -1,77 +1,70 @@
-# JOB-RADAR AI V5.1
+# JOB-RADAR AI — clean search
 
-A local AI career researcher using your existing Codex subscription. Upload your CV,
-describe your next move in one text box, choose Search with AI. Interpretation is internal; no compulsory summary approval.
-No universal profession, employers or countries. LinkedIn indexed vacancy discovery is
-the first focus; employer careers and other useful public sources remain available.
+CV + your original career goals → Search with AI → LinkedIn-first research →
+Recommended / All Opportunities. A private Windows browser application using your
+own separately authenticated Codex or Claude Code subscription CLI. No API-key
+fallback, hosted database, automatic applications or system-wide runtime installation.
 
-V5 preview lives on [`feat/v5-1-research-completion`](https://github.com/eRR2/JOB-RADAR-AI/tree/feat/v5-1-research-completion).
-Main still contains V1. No stable V5 Release, hosted service, API key or automatic applications.
+Development branch: [codex/clean-search-simplification](https://github.com/eRR2/JOB-RADAR-AI/tree/codex/clean-search-simplification).
+Main remains V1; this preview is not a stable Release. The second-PC installation is unchanged.
 
-## Start in Codex Desktop on Windows
+## Use
 
-Copy this into Codex Desktop:
+Invoke the bundled `$job-radar-ai` skill in a reviewed local checkout. Codex launches
+the same private loopback dashboard; no VS Code or manual CMD/Python command is needed.
+Missing pinned private runtime or CLI downloads still require your approval.
+Desktop sign-in does not prove the separate CLI is authenticated or inference works.
+See [installation](docs/INSTALL_CODEX_DESKTOP.md).
 
-> Review https://github.com/eRR2/JOB-RADAR-AI/tree/feat/v5-1-research-completion and prepare
-> a new private Windows workspace from a reviewed exact revision. Register the bundled
-> job-radar-ai skill and open the dashboard. Ask before missing private runtime/CLI
-> downloads; help me use my own subscription login. Do not reuse another user's data
-> or replace an existing installation. I will upload my CV and describe my next move.
+Upload a text PDF/DOCX CV and describe your next move in one text field, including
+geographic and employment preferences. Search with AI interprets changed input internally;
+there is no understanding-approval screen. Unchanged confirmed intent is reused.
 
-No VS Code or manual Python/Bun installation. Private pinned runtime/bootstrap and
-the separate Codex CLI require download consent when missing. Desktop login alone
-does not prove CLI authentication, inference or web research.
-See [setup](docs/INSTALL_CODEX_DESKTOP.md) and [V5 implementation/evidence/limits](docs/V5.md).
+Every new search creates a verified local backup, then clears previous jobs, descriptions,
+assessments, queries, queues, caches, reports, run histories and job-specific application
+states. Only CV/background, original career text, preferences, learned knowledge and relevant
+explicit feedback survive. Genuine active publisher restrictions remain separate and protected.
+Old workers cannot write into the replacement session. Existing pre-simplification results
+are cleared once when this preview is first opened; they remain in the verified private backup.
 
-In an existing reviewed V5 checkout, invoke `$job-radar-ai`; Codex launches the same
-loopback dashboard automatically. Existing V5 CV/history persist on restart and upgrades.
-Historical V1–V4.1 databases are refused, never silently migrated/imported or restored.
-An old installation needs a separately authorized fresh start or a separate new workspace.
+Recommended presents strong AI-supported next-step decisions first. Title similarity and
+transferable skills alone do not establish suitability. Critical specialist gaps remain
+explicit; weak roles are not promoted to fill the view. Full and preliminary source evidence
+are visibly distinct. All Opportunities contains every genuine discovery in the current
+session. Availability remains **Güncellik doğrulanmadı** without positive publisher evidence.
 
-## Research and workspace
+Real native source text is reused locally. Exact matching guards against attaching a different
+posting's description. Missing full descriptions do not automatically exclude strong candidates.
+No individual AI description-locating loop, separate ATS report, application tracker,
+Obsolete control, Promising tab, automatic schedule or technical search-control panel.
 
-AI conducts actual public web research in meaningful, cancelable batches, within a
-fifteen-minute run window and provider/source limits. Raw CV is excluded from web-enabled
-discovery: private inference first produces an anonymous professional research brief.
-Source observations establish URLs/facts; model prose cannot create retrieved text.
-Promising — Needs Verification makes useful snippet-supported leads visible. Targeted follow-up investigates retained vacancies without another discovery run. Indexed links stay preliminary until exact full-description retrieval and
-evidence-based ATS/HR evaluation. Partial progress is retained; no tiny country-split quota.
+## Execution and verification
 
-Recommended, All Opportunities, dynamic country tabs, Applications and Reports retain
-observed vacancies, preliminary perspectives, source evidence, full evaluations and
-application history. Geography distinguishes verified, inferred and unknown; strong city mappings permit country-view visibility without verified-country learning. Feedback belongs to the verified vacancy country; unknown or inferred locations
-stay unclassified. No Global/Scope/Required preference forms or country-code editing.
+Research uses an anonymous background; raw CV and private feedback enter private inference
+only. Current-session duplicate/query context and cached source failures prevent repeat work.
+Changed evidence may be reassessed; unchanged evidence is assessed once. Private calls are
+bounded to 60 seconds, web research to 90 seconds, with a five-minute outer safety window.
+No automatic retry or provider fallback. Research stops when useful avenues or novelty run out;
+response batch size is not a total job limit. Source restrictions and robots rules are respected.
 
-Direct LinkedIn description access is separate, optional and consented. HTTP 429 respects
-Retry-After or finite backoff; active restrictions are never retried or bypassed. Other
-publisher denials remain authoritative. A direct-access failure does not stop indexed
-web discovery. No proxies, credentials, stealth or alternate denied endpoints.
+Focused offline checks:
 
-Set a manual/daily/weekly routine. Skill mode offers Run now / Remind later / Skip when
-reopened; no Windows scheduled task or research while the PC is off.
-User data lives only under ignored `.private/`; real private data is never shipped.
+```powershell
+.venv\Scripts\python.exe -m unittest discover -s tests -p test_clean_search.py -v
+.venv\Scripts\python.exe -m unittest discover -s tests -p test_clean_http.py -v
+node --test tests/web_clean.test.cjs
+node --check web/app.js
+.venv\Scripts\python.exe scripts/check_privacy.py
+```
 
-## Current verification
+Historical tests/modules remain as references for earlier branch behavior. Current UI
+acceptance is `web_clean.test.cjs`, replacing the earlier multi-tab UI expectations.
+No hundreds-of-tests campaign or live subscription research was used for this simplification.
+Measured behavior, preserved data and limitations: [clean-search acceptance](docs/CLEAN_SEARCH.md).
 
-V5.1 preserved the developer's 38 V5 vacancies, CV, original career text, feedback,
-application history and original report. Actual targeted work recovered and evaluated
-one German Saab and one Dutch Sioux posting; two full descriptions, two full AI
-assessments, zero forced recommendations. Other useful preliminary leads remain visible.
-Native Codex page opening was verified. Full text is checked with controlled publisher
-retrieval because CLI event metadata does not export the complete native page body.
-Source 404/410, uncertain availability and provider failures remain accurately labeled.
-See [V5.1 evidence and limitations](docs/V5_1.md). Browser automation still cannot verify
-localhost visually, and a clean Windows VM / Claude web tools remain unverified.
+## License and privacy
 
-## Development
-
-Use the project's `.venv\Scripts\python.exe` for Python checks and place the existing
-Bun directory on the test process PATH for its child-process fixtures. Run focused
-behavior checks for the change, `node --check web/app.js`, the offline Bun parser/CLI
-tests and `scripts/check_privacy.py` with the project interpreter after staging.
-See [architecture](docs/ARCHITECTURE.md), [actual V5 evidence](docs/V5.md) and
-[tasks](tasks/todo.md). No npm frontend runtime dependency was introduced.
-
-The original V1–V4.1 source history remains in prior branches for code rollback;
-it is not an invitation to restore historical user data into V5.
-MIT licensed; [third-party notices](THIRD_PARTY_NOTICES.md) retain upstream rights.
+MIT. Attributed LinkedIn integration remains available in the repository; no
+`linkedin-jobs-api` dependency was added. CV, database, reports, verification copies,
+backups, runtime and provider session files stay outside Git under `.private/` or
+existing user-owned CLI storage. Source pages receive no CV or profile content.

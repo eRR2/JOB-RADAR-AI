@@ -13,6 +13,10 @@ def now():
     return datetime.now(timezone.utc).isoformat(timespec='seconds')
 
 
+class SessionExpired(ValueError):
+    """An old worker must never read or mutate the replacement session."""
+
+
 def normalize_weights(weights):
     if not weights or any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0 for v in weights.values()):
         raise ValueError('Weights must be finite nonnegative numbers.')
@@ -24,6 +28,7 @@ def normalize_weights(weights):
 
 class Store:
     def __init__(self, path, v5=False):
+        self.session_token = None
         self.path = Path(path)
         self.v5 = v5
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -64,7 +69,7 @@ class Store:
                     job_id TEXT NOT NULL REFERENCES jobs(id), is_new INTEGER NOT NULL, PRIMARY KEY(run_id,job_id));
                 CREATE TABLE IF NOT EXISTS cache(key TEXT PRIMARY KEY, at TEXT NOT NULL, payload TEXT NOT NULL);
             ''')
-            db.execute('BEGIN IMMEDIATE')
+            if not db.in_transaction:db.execute('BEGIN IMMEDIATE')
             db.execute('CREATE TABLE IF NOT EXISTS job_markets(job_id TEXT NOT NULL REFERENCES jobs(id), market_id TEXT NOT NULL, PRIMARY KEY(job_id,market_id))')
             db.execute('CREATE TABLE IF NOT EXISTS market_evaluations(job_id TEXT NOT NULL REFERENCES jobs(id), market_id TEXT NOT NULL, evaluation TEXT NOT NULL, content_stale INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(job_id,market_id))')
             db.execute('CREATE TABLE IF NOT EXISTS feedback_scopes(feedback_id INTEGER PRIMARY KEY REFERENCES feedback(id), scope TEXT NOT NULL)')
@@ -91,9 +96,59 @@ class Store:
         db.execute('PRAGMA foreign_keys=ON')
         try:
             with db:
+                if self.session_token is not None:
+                    if not db.in_transaction:db.execute('BEGIN IMMEDIATE')
+                    row = db.execute("SELECT value FROM settings WHERE key='search_session'").fetchone()
+                    if not row or json.loads(row[0]) != self.session_token:
+                        raise SessionExpired('This search session has ended; stale results were refused.')
                 yield db
         finally:
             db.close()
+
+    def bound(self, token):
+        worker = object.__new__(Store)
+        worker.path, worker.v5, worker.session_token = self.path, self.v5, token
+        return worker
+
+    def fresh_session(self):
+        """Verified backup, knowledge snapshot, then an atomic disposable-state reset."""
+        from .access import active
+        folder = self.path.parent / 'backups'
+        folder.mkdir(exist_ok=True)
+        backup_path = folder / ('before-search-' + secrets.token_hex(8) + '.sqlite3')
+        self.backup(backup_path)
+        with closing(sqlite3.connect(backup_path)) as backup:
+            if backup.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+                raise ValueError('Search backup failed verification; existing data retained.')
+            tables = [r[0] for r in backup.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+            snapshot = {t:backup.execute('SELECT * FROM "'+t+'" ORDER BY rowid').fetchall() for t in tables}
+        with self.db() as db:
+            if not db.in_transaction:db.execute('BEGIN IMMEDIATE')
+            if any([tuple(r) for r in db.execute('SELECT * FROM "'+t+'" ORDER BY rowid')] != rows for t,rows in snapshot.items()):
+                raise ValueError('Workspace changed during backup; existing session retained. Try again when idle.')
+            settings = {r['key']:json.loads(r['value']) for r in db.execute('SELECT * FROM settings')}
+            knowledge = {k:v for k,v in settings.items() if k in ('profile','cv_text','cv_filename','persistent_feedback','professional_background','knowledge_signature','learning_paused','preference_revision') or k.startswith(('learned','learning_explanation','preference_revision:'))}
+            retained = knowledge.setdefault('persistent_feedback', [])
+            for r in db.execute('SELECT f.*,s.scope,j.payload FROM feedback f JOIN jobs j ON j.id=f.job_id LEFT JOIN feedback_scopes s ON s.feedback_id=f.id'):
+                job = json.loads(r['payload'])
+                fact = {'feedback_id':r['id'],'session':settings.get('search_session','imported_knowledge'),'job_id':r['job_id'],'title':job.get('title',''),'country':r['scope'] or 'unclassified','kind':r['kind'],'reasons':json.loads(r['reasons']),'note':r['note'],'at':r['at']}
+                if fact not in retained:retained.append(fact)
+            # Genuine third-party denials live outside the disposable session.
+            for k,v in settings.items():
+                if k == 'linkedin_access' or k.startswith('public:access:'):
+                    if v and v.get('http_status') and v.get('state') != 'request_in_progress' and active(v):knowledge[k]=v
+                elif k.startswith('public:stop:'):
+                    access = settings.get('public:access:' + k.removeprefix('public:stop:'))
+                    if not access or active(access):knowledge[k]=v
+                elif k == 'linkedin_stop' and not settings.get('linkedin_access'):
+                    # Legacy explicit denial with no trustworthy expiry remains protected.
+                    knowledge[k]=v
+            token = secrets.token_hex(16)
+            knowledge['search_session'] = token
+            for table in ('market_evaluations','job_markets','feedback_scopes','observations','feedback','application_events','jobs','runs','cache','settings'):
+                db.execute('DELETE FROM '+table)
+            db.executemany('INSERT INTO settings VALUES (?,?)', [(k,json.dumps(v)) for k,v in knowledge.items()])
+        return token, backup_path
 
     def get(self, key, default=None):
         with self.db() as db:
@@ -111,13 +166,25 @@ class Store:
         return [r['key'].removeprefix('public:access:') for r in rows if active(json.loads(r['value']))]
 
     def set(self, key, value):
+        if self.session_token is not None and (key == 'linkedin_access' or key.startswith('public:access:')) and isinstance(value,dict) and value.get('http_status') and value.get('state') in ('restricted','cooling_down'):
+            # A late real denial is safety knowledge, never a stale job result.
+            unbound = self.bound(None)
+            with unbound.db() as db:
+                if not db.in_transaction:db.execute('BEGIN IMMEDIATE')
+                old = db.execute('SELECT value FROM settings WHERE key=?',(key,)).fetchone()
+                from .access import active
+                prior = json.loads(old[0]) if old else None
+                if prior and active(prior) and (prior.get('state')=='restricted' or (value.get('state')=='cooling_down' and prior.get('until','')>=value.get('until',''))):
+                    return
+                db.execute('INSERT INTO settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',(key,json.dumps(value)))
+            return
         with self.db() as db:
             db.execute('INSERT INTO settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', (key, json.dumps(value)))
 
     def upsert_job(self, job, run_id=None, market_id=None):
         timestamp = now()
         with self.db() as db:
-            db.execute('BEGIN IMMEDIATE')
+            if not db.in_transaction:db.execute('BEGIN IMMEDIATE')
             old = db.execute('SELECT payload FROM jobs WHERE id=?', (job['id'],)).fetchone()
             merged = json.loads(old[0]) if old else {}
             merged.update({k: v for k, v in job.items() if v is not None})
@@ -170,7 +237,7 @@ class Store:
         if status not in ('none', 'saved', 'applied', 'interview', 'offer', 'rejected', 'dismissed'):
             raise ValueError('Unknown application status.')
         with self.db() as db:
-            db.execute('BEGIN IMMEDIATE')
+            if not db.in_transaction:db.execute('BEGIN IMMEDIATE')
             row = db.execute('SELECT application_status FROM jobs WHERE id=?', (job_id,)).fetchone()
             if not row:
                 raise ValueError('Unknown job identity.')
@@ -201,7 +268,8 @@ class Store:
     def feedback(self, market_id=None):
         with self.db() as db:
             rows = db.execute("SELECT f.*,j.payload,COALESCE(s.scope,'unclassified') AS scope FROM feedback f JOIN jobs j ON j.id=f.job_id LEFT JOIN feedback_scopes s ON s.feedback_id=f.id WHERE ? IS NULL OR s.scope IN (?, 'global') ORDER BY f.id DESC LIMIT 100",(market_id,market_id)).fetchall()
-        return [{**dict(r), 'reasons': json.loads(r['reasons']), 'job': json.loads(r['payload']), 'payload': None} for r in rows]
+        from .hunter import source_context
+        return [{**dict(r), 'reasons': json.loads(r['reasons']), 'job': source_context(json.loads(r['payload'])), 'payload': None} for r in rows]
 
     def start_run(self, provider):
         with self.db() as db:
@@ -275,7 +343,7 @@ class Store:
 
     def erase(self):
         with self.db() as db:
-            db.execute('BEGIN IMMEDIATE')
+            if not db.in_transaction:db.execute('BEGIN IMMEDIATE')
             db.execute('PRAGMA secure_delete=ON')
             for table in ('market_evaluations','job_markets','feedback_scopes','observations', 'feedback', 'application_events', 'jobs', 'runs', 'cache', 'settings'):
                 db.execute('DELETE FROM ' + table)

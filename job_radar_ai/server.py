@@ -25,6 +25,7 @@ from .research import ResearchHunter
 from .access import linkedin_state
 from .location import geography
 from .completion import CompletionResolver
+from .session_search import SessionSearch
 
 CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 
@@ -35,8 +36,11 @@ class Application:
         self.skill_mode = skill_mode
         self.workspace_id = hashlib.sha256((str(self.root) + '\n' + str(Path(database).resolve())).encode()).hexdigest()
         self.v5 = (self.root/'version.json').is_file() and version(self.root).get('version','').startswith('5.')
+        self.simple = self.v5 and version(self.root).get('version','').startswith('5.3')
         self.store = Store(database, v5=self.v5)
-        self.hunter = (ResearchHunter if self.v5 else Hunter)(root, self.store)
+        if self.simple and not self.store.get('search_session'):
+            self.store.fresh_session()
+        self.hunter = SessionSearch(root,self.store.bound(self.store.get('search_session'))) if self.simple else (ResearchHunter if self.v5 else Hunter)(root,self.store)
         self.csrf = secrets.token_urlsafe(32)
         self.mutations = threading.RLock()
         self.operation = None
@@ -48,6 +52,21 @@ class Application:
         self.update_thread=None
         if self.store.get('update_notifications', False):
             self.check_updates()
+
+    def new_search_session(self):
+        self.hunter.cancel.set()
+        if self.hunter.thread and self.hunter.thread.is_alive():
+            self.hunter.thread.join(timeout=3)
+        token,_ = self.store.fresh_session()
+        self.hunter = SessionSearch(self.root,self.store.bound(token))
+
+    def start_search(self, market_id='all'):
+        if self.simple:
+            profile=self.store.get('profile') or {}
+            if not profile.get('consent') or not profile.get('secondary') or len(profile.get('cv_text',''))<30:
+                raise ValueError('A readable CV, saved career request and AI/web consent are required.')
+            self.new_search_session()
+        return self.hunter.start(market_id)
 
     def check_updates(self):
         if self.update_check_running:
@@ -75,6 +94,13 @@ class Application:
         jobs = self.store.jobs()
         markets=(profile or {}).get('markets',[])
         for job in jobs:
+            if not self.simple and job.get('preliminary',{}).get('policy') == 'v5.2':
+                from .recommendations import signature
+                geo=geography(job,markets)
+                scoped_market=next((m for m in markets if m['id']==geo['country_id']),None)
+                scoped=market_profile(profile,scoped_market,self.store) if scoped_market else {**profile,'authoritative_request':profile.get('looking_for','')}
+                feedback=self.store.feedback(scoped_market['id']) if scoped_market and country_of(job,markets)==scoped_market['id'] else []
+                job['preliminary_stale']=job['preliminary']['signature']!=signature(job,scoped,feedback)
             job['description_status'] = description_state(job, self.store)
             job['country_id']=country_of(job,markets)
             job['geography']=geography(job,markets)
@@ -104,7 +130,7 @@ class Application:
 
     def catchup(self):
         profile = self.store.get('profile')
-        if not self.skill_mode or not profile:
+        if self.simple or not self.skill_mode or not profile:
             return None
         slot = catchup_slot(profile, previous=self.store.get('schedule_slot'))
         reminder = self.store.get('catchup_reminder') or {}
@@ -123,7 +149,7 @@ class Application:
                 self.store.set('catchup_reminder', {'slot':due['slot'], 'until':(datetime.now().astimezone()+timedelta(hours=1)).isoformat()})
                 return {'reminded_later':True}
             if data['action'] == 'run':
-                run_id = self.hunter.start()
+                run_id = self.start_search()
                 if run_id is None:
                     raise ValueError('Another search is already active.')
             else:
@@ -152,7 +178,7 @@ class Application:
         self.operation_thread.start()
 
     def scheduler(self, stop):
-        if self.skill_mode:
+        if self.skill_mode or self.simple:
             return
         while not stop.wait(20):
             with self.mutations:
@@ -249,6 +275,8 @@ def make_server(root, database, port=8767, skill_mode=False):
                 self.response(500, {'error':{'message':'Local operation failed; private state preserved. Check runtime installation.'}})
 
         def mutate(self, path, data):
+            if app.simple and path in ('/api/resolve-description','/api/complete-descriptions','/api/supplied-description','/api/reevaluate','/api/reprioritize','/api/application','/api/obsolete','/api/budgets','/api/source-reset','/api/intent-analysis','/api/intent-accept','/api/schedule'):
+                raise ValueError('This control was removed. Start a fresh Search with AI.')
             search_active=any(run['status']=='running' for run in app.store.runs())
             operation_active=bool(app.operation and app.operation['status']=='running')
             if path == '/api/check-updates':
@@ -316,12 +344,15 @@ def make_server(root, database, port=8767, skill_mode=False):
                 if not isinstance(summary_edit,str) or len(summary_edit)>12000:
                     raise ValueError('Keep the edited understanding within 12,000 characters.')
                 evidence_text=text if auto_search else text+'\n'+summary_edit+'\n'+legacy_text(prior)
+                if app.simple and auto_search:
+                    app.new_search_session()
                 def interpret(cancel):
                     ai=Provider(provider,app.root/'.private/ai')
                     context={'cv_text':cv,'user_text':text,'edited_understanding':summary_edit,'legacy_texts':'' if auto_search else legacy_text(prior)}
                     task=INTENT_TASK+(' V5.1 interpretation is INTERNAL: original user text is authoritative, not a generic summary. No compulsory approval step. Preserve every country-specific condition, exception, exclusion and employer priority from that text. Ask only a genuinely essential ambiguity that prevents meaningful research; all optional unknowns stay unknown.' if auto_search else ' If an edited understanding is supplied, reconcile its changes with the original words. Do not retain contradicted preferences; keep unknowns unknown.')
-                    result=ai.run('intent',task,context,cancel=cancel)
-                    result=validate_with_evidence_correction(result,cv,evidence_text,lambda invalid,issues:ai.run('intent','Correct ONLY the invalid quote fields identified below, copying a verbatim contiguous passage from the original source. A geographic passage must include its country and every listed preferred/secondary place. Keep all other fields, origins, markets, constraints and preferences exactly unchanged. Never change explicit to inferred. If unsupported, do not invent evidence. No onboarding restart, tools or search.',{**context,'invalid_intent':invalid,'invalid_evidence_fields':issues},cancel=cancel,research=False))
+                    unchanged=app.simple and auto_search and prior.get('intent_confirmed') and prior.get('looking_for')==text and prior.get('cv_text')==cv
+                    result=prior['intent'] if unchanged else ai.run('intent',task,context,cancel=cancel,timeout=60 if app.simple else 240)
+                    result=validate_with_evidence_correction(result,cv,evidence_text,lambda invalid,issues:ai.run('intent','Correct ONLY the invalid quote fields identified below, copying a verbatim contiguous passage from the original source. A geographic passage must include its country and every listed preferred/secondary place. Keep all other fields, origins, markets, constraints and preferences exactly unchanged. Never change explicit to inferred. If unsupported, do not invent evidence. No onboarding restart, tools or search.',{**context,'invalid_intent':invalid,'invalid_evidence_fields':issues},cancel=cancel,research=False,timeout=60 if app.simple else 240))
                     if auto_search:
                         if result['questions'] or not result['markets']:
                             raise ValueError('Please clarify your career request: '+'; '.join(result['questions'] or ['Which geographic market should research cover?']))
@@ -454,7 +485,11 @@ def make_server(root, database, port=8767, skill_mode=False):
             if path == '/api/search':
                 if app.operation and app.operation['status']=='running':
                     raise ValueError('Wait for or cancel the profile/provider operation first.')
-                run_id = app.hunter.start(data.get('market_id','all'))
+                if app.simple:
+                    profile=app.store.get('profile') or {}
+                    if app.store.get('cv_text') and app.store.get('cv_text')!=profile.get('cv_text'):
+                        return self.mutate('/api/career-search',{**{k:profile.get(k) for k in ('looking_for','provider','consent')},'secondary':bool(profile.get('secondary')),'linkedin_consent':bool(profile.get('linkedin_consent'))})
+                run_id = app.start_search(data.get('market_id','all'))
                 if app.skill_mode and run_id is not None:
                     slot = catchup_slot(app.store.get('profile'))
                     app.store.set('schedule_slot', slot)

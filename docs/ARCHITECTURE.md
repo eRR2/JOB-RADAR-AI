@@ -1,3 +1,11 @@
+# Active clean-search workflow
+
+See [clean-search acceptance](CLEAN_SEARCH.md). Version 5.3 uses `SessionSearch` and
+an atomic SQLite search-session boundary. Durable user knowledge and active publisher
+restrictions are retained; jobs, evidence, plans, caches and runs are disposable.
+Old worker writes are transactionally refused. The browser has Recommended and
+All Opportunities only. Earlier coordinators below are historical references.
+
 # V5 architecture
 
 Current design and evidence: [V5 AI research](V5.md). `ResearchHunter` replaces the
