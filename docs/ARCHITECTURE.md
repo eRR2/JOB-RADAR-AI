@@ -8,7 +8,13 @@ Old workers cannot write into replacement sessions. Private anonymous briefs are
 cached by knowledge signature before web research; raw career text and CV experience
 records stay in private inference. Exact source/employer requisitions outrank URL
 tracking differences; ID-less matches require corroborating content. Triage precedes
-costly description recovery and assessment. Each invalid assessment is withheld
+costly description recovery and assessment. Compact triage batches all finish before
+source enrichment starts; stored AI priority order controls verification and assessment.
+Each selected market gets one primary discovery pass, with broader avenues explicitly
+deferred. Observed job-specific publisher sources precede consented LinkedIn detail
+requests. Only active verified full descriptions enter final assessment, at most two
+per call, with long descriptions isolated rather than truncating their requirements.
+Each invalid assessment is withheld
 independently; old recommendations cannot remain active after failed verification.
 The browser has Recommended and All Opportunities, with a separate previous-leads
 section. Earlier coordinators and acceptance documents below are historical references.

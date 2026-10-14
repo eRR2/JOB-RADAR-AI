@@ -43,5 +43,6 @@ def observed_job(candidate, observations, rejected=None):
         job['partial_source_text']={'text':read_text,'url':url,'at':now(),'kind':'partial_verified_text','completeness':'unverified'}
     if not country and job['location'] and inferred.get('basis')=='city_country_mapping' and inferred.get('confidence')=='strong' and re.fullmatch('[A-Z]{2}',inferred.get('country_id','')):
         job['geography']={'status':'inferred','country_id':inferred['country_id'],'basis':'ai_city_country_mapping','evidence':job['location'],'explanation':inferred.get('explanation','')}
-    return job
+    from .listing_metadata import source_title_fields
+    return source_title_fields(job)
 

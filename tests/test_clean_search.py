@@ -41,6 +41,17 @@ class ScriptedAI:
         raise AssertionError(kind)
 
 
+class VerifiedScriptedAI(ScriptedAI):
+    """Publisher HTML fixture for tests that require completed assessments."""
+    def run(self,kind,task,context,**kwargs):
+        value=super().run(kind,task,context,**kwargs)
+        if kind=='research_v5':
+            for observation in self.telemetry['observations']:
+                observation['text']='<link rel="canonical" href="'+observation['url']+'"><h1>'+observation['title']+'</h1><main><p>'+observation['snippet']+' '+('Actual job requirements and technical responsibilities. '*6)+'</p></main>'
+                observation['observation_kind']='page_read'
+        return value
+
+
 class CleanSessionTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
@@ -114,12 +125,14 @@ class CleanSessionTests(unittest.TestCase):
         fetch=PublicFetcher(store,request=lambda _:self.fail('No live request in this test'))
         SessionSearch(self.root,store).execute(run,threading.Event(),ai=ai,fetcher=fetch)
         jobs={j['id']:j for j in self.store.jobs()}
-        self.assertTrue(jobs['linkedin:123456']['preliminary']['recommend']);self.assertNotIn('description',jobs['linkedin:123456'])
-        self.assertFalse(jobs['linkedin:123457']['preliminary']['recommend'])
-        self.assertIn('optical',jobs['linkedin:123457']['preliminary']['next_step'].lower())
-        self.assertEqual(sum(k=='priority_v52' for k,_,_,_ in ai.calls),1)
-        self.assertEqual(ai.researches,2)  # Repeated identities/queries exhaust this avenue early.
-        self.assertTrue(any('Fresh systems responsibility query' in c.get('previous_queries',[]) for k,_,c,_ in ai.calls if k=='research_v5'))
+        self.assertFalse(jobs['linkedin:123456'].get('preliminary',{}).get('recommend',False));self.assertNotIn('description',jobs['linkedin:123456'])
+        self.assertEqual(jobs['linkedin:123456']['review_state']['reason'],'full_source_required')
+        self.assertFalse(any(k=='priority_v52' for k,_,_,_ in ai.calls))
+        self.assertFalse(jobs['linkedin:123457'].get('preliminary',{}).get('recommend',False))
+        self.assertIn('optical',jobs['linkedin:123457']['source_observations'][0]['text'].lower())
+        self.assertEqual(sum(k=='priority_v52' for k,_,_,_ in ai.calls),0)
+        self.assertEqual(ai.researches,1)
+        self.assertIn('DE',self.store.runs()[0]['payload']['diagnostics']['deferred_discovery'])
         self.assertTrue(all(o['timeout']<=90 for _,_,_,o in ai.calls))
         for kind,_,context,opts in ai.calls:
             if opts.get('research'):self.assertNotIn(CV,json.dumps(context))
@@ -181,7 +194,8 @@ class CleanSessionTests(unittest.TestCase):
                 if kind=='research_v5':
                     self.calls.append((kind,task,context,kwargs))
                     c=candidate(123456);c.update(country='',country_quote='',location='Unverified locality')
-                    self.telemetry={'web_calls':1,'observations':[dict(url=c['url'],title=c['title'],snippet='Synthetic Unverified locality. Own electrical system architecture.')],'actions':[{'queries':[context['market']['country']]}]}
+                    html='<link rel="canonical" href="'+c['url']+'"><h1>'+c['title']+'</h1><main><p>Synthetic Unverified locality. Own electrical system architecture. '+('Actual job requirements. '*8)+'</p></main>'
+                    self.telemetry={'web_calls':1,'observations':[dict(url=c['url'],title=c['title'],text=html,observation_kind='page_read')],'actions':[{'queries':[context['market']['country']]}]}
                     return dict(jobs=[c],summary='Same exact observed identity',limitations=[],continue_research=False,next_avenues=[])
                 return super().run(kind,task,context,**kwargs)
         ai=UnknownAI();SessionSearch(self.root,store).execute(run,threading.Event(),ai=ai)

@@ -30,6 +30,21 @@ The current coordinator is `SessionSearch`:
 6. Show fresh credible recommendations first, with a short separate section for
    previously found opportunities. All Opportunities retains other discoveries.
 
+Incomplete assessments have a separate section and an explicit timeout, budget or
+validation reason. Source-confirmed closed positions remain visible as review
+exclusions; they are not cached assessments. Completed phase labels reflect actual
+coverage. Snippet-only decisions stay short and preliminary. Final recommendations
+require a verified publisher description and literal responsibility evidence. Primary
+discovery covers each selected market once, then compact relevance triage orders source
+verification before bounded assessment calls of at most two complete descriptions.
+Broader discovery avenues are recorded as deferred, not exhausted. Missing source text
+remains pending; budgets and provider failures never imply completed assessment.
+Publication-title hints
+for employer, locality and advertised compensation are labeled unverified and never
+replace canonical identity facts. An advertised salary ceiling is not guaranteed pay.
+An empty local application status is unverified until supported by a recorded decision.
+Dutch employer-ruling information is shown only for roles identified as Dutch.
+
 Every recommendation explains fit, gaps, technical versus disciplinary authority and
 trade-offs. Qualitative priority is separate from evidence completeness. Salary, hours
 and workplace terms require literal source evidence. Employer ruling support requires

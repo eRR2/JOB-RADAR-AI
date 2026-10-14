@@ -26,6 +26,8 @@ from .access import linkedin_state
 from .location import geography
 from .completion import CompletionResolver
 from .session_search import SessionSearch
+from .listing_metadata import source_title_fields
+from .reporting import review_state, coverage
 
 CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 
@@ -93,6 +95,8 @@ class Application:
         profile = self.store.get('profile')
         jobs = self.store.jobs()
         markets=(profile or {}).get('markets',[])
+        runs=self.store.runs()
+        diagnostics=(runs[0]['payload'].get('diagnostics') or {}) if runs else {}
         for job in jobs:
             if not self.simple and job.get('preliminary',{}).get('policy') == 'v5.2':
                 from .recommendations import signature
@@ -108,6 +112,9 @@ class Application:
             job['country_status']='country stated in source' if job['country_id'] else 'country unverified'
             market=next((m for m in markets if m['id']==job['country_id']),None)
             job['location_status']=location_status(job,profile,market) if market else 'location_unknown'
+            review_market=next((m for m in markets if m['id']==job['geography']['country_id']),None)
+            job['review_state']=review_state({**job,'review_country':review_market['country'] if review_market else 'Location unverified'},diagnostics)
+            job.update(source_title_fields(job))
             for key,item in job['market_evaluations'].items():
                 market=next((m for m in markets if m['id']==key),None)
                 item['assessment_stale']=bool(item['content_stale'] or not market or item['evaluation'].get('profile_signature')!=profile_signature(market_profile(profile,market,self.store)))
@@ -115,7 +122,7 @@ class Application:
         market_state={m['id']:{'learned':self.store.get('learned:'+m['id'],[]),'learning_explanation':self.store.get('learning_explanation:'+m['id'],''), 'revision':self.store.preference_revision(market_id=m['id'])} for m in markets}
         return {'csrf': self.csrf, 'profile': profile, 'jobs': jobs,
                 'previous_opportunities': self.store.historical_opportunities(8) if self.simple else [],
-                'runs': self.store.runs(),
+                'runs': runs, 'review_coverage':coverage(jobs,diagnostics),
                 'providers': self.providers(), 'cv': {'text':self.store.get('cv_text',''), 'filename':self.store.get('cv_filename')},
                 'proposed_profile': self.store.get('proposed_profile'), 'proposed_intent':self.store.get('proposed_intent'),
                 'intent_review_required':bool(profile and not profile.get('intent_confirmed')), 'learned': self.store.get('learned', []),

@@ -23,7 +23,7 @@ class DiscoveryFirstTests(unittest.TestCase):
         return self.store.runs()[0]['payload']
 
     def test_all_markets_discovery_precedes_enrichment_and_evaluation(self):
-        ai=ScriptedAI();payload=self.run_search(ai)
+        ai=fixtures.VerifiedScriptedAI();payload=self.run_search(ai)
         stages=[k for k,_,_,_ in ai.calls]
         discoveries=[i for i,k in enumerate(stages) if k=='research_v5']
         self.assertLess(max(discoveries),stages.index('enrichment'))
@@ -54,7 +54,7 @@ class DiscoveryFirstTests(unittest.TestCase):
         self.assertTrue(self.store.jobs())
 
     def test_timeout_retains_discoveries_and_call_diagnostics(self):
-        class TimeoutAI(ScriptedAI):
+        class TimeoutAI(fixtures.VerifiedScriptedAI):
             def run(self,kind,task,context,**opts):
                 if kind=='priority_v52':
                     self.telemetry={}

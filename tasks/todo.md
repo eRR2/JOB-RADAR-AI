@@ -112,3 +112,16 @@ The following tasks document historical branches.
 Evidence and remaining work: [foundation audit](../docs/FOUNDATION_AUDIT.md).
 Historical tasks above do not override the current contract.
 
+## Verification-first follow-up and retained failures
+
+- [x] Diagnose saved source access, shared timeout, ordering and phase allocation without live research.
+- [x] Preserve AI shortlist order; verify exact sources before small full-description assessment batches.
+- [x] Expose partial coverage, source gaps, unverified title terms and exact local application status.
+- [x] Replay saved publisher bytes privately and add synthetic scheduling/source/report regressions.
+- [ ] `test_catchup.test_failed_start_does_not_consume_slot_and_skill_scheduler_never_runs`: simple-preview catch-up returns None.
+- [ ] `test_catchup.test_reminder_survives_restart_without_consuming_due_search`: same catch-up contract mismatch.
+- [ ] `test_catchup.test_run_now_records_one_attempt_and_duplicate_click_cannot_start_another`: same catch-up contract mismatch.
+- [ ] `test_catchup.test_skip_persists_and_stale_or_duplicate_actions_are_refused`: same catch-up contract mismatch.
+- [ ] `test_markets.test_catchup_all_outcomes_are_one_persistent_run`: legacy start mock accepts no market argument.
+- [ ] `test_skill_launch.test_first_launch_returns_without_inheriting_agent_pipes_and_reuses_workspace`: active workspace update lock blocks launcher fixture; do not bypass lock.
+

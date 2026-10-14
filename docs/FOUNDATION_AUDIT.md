@@ -157,3 +157,99 @@ workspace holds its update lock, as confirmed by that synthetic launch's stderr.
 No locks were bypassed or existing dashboard stopped. Final focused verification
 passed **89 tests**, including seven new provider regressions covering every outbound
 nested schema for both CLIs, safe error diagnostics and legacy compatibility.
+
+## Review completeness follow-up (14 October 2026)
+
+The bounded evaluation coordinator could label an unfinished evaluation phase complete,
+count closed jobs as cached decisions, and continue further assessment calls after a
+provider timeout. It lacked persistent per-vacancy reasons for unassessed candidates.
+Evaluation now advances in one eight-job batch per market turn, retains each successful
+batch, stops provider calls on failure, records pending/excluded/invalid decisions and
+marks outstanding assessment coverage partial. Missing full descriptions also produce a
+source-limited partial result. Source-enrichment attempts retain access/identity failure
+reasons for future diagnostics instead of only a generic description status.
+
+The state response projects reasons from legacy run diagnostics without changing their
+stored assessments or source facts. Title-derived company/locality/compensation hints
+carry the observed title, URL and unverified state separately from canonical identity
+fields. Application-history matching remains exact and local-only; legacy/default
+`none` is not proof of no application. Explicit confirmations persist independently
+of that default. No mailbox was fetched or imported for this diagnosis.
+
+The main report separates fresh reasoned opportunities, short previously found leads,
+incomplete assessments and explicit exclusions. All Opportunities retains lower-relevance
+discoveries. Snippet commentary separates known fit from missing responsibilities;
+employer ruling appears only on roles identified as Dutch. No model assessment was
+invented to fill missing coverage, and no live research, retry or API fallback was run.
+
+Final offline verification: **272 Python tests, 266 passed, 1 failure, 5 errors**, no
+skips. The remaining legacy catch-up/active-workspace launcher failures are unchanged
+from the earlier diagnosis. **14 DOM tests passed**. Chrome verified a synthetic local
+24-candidate report, all retained cards, explicit pending/excluded counts, unverified
+title salary ceiling and no console warnings/errors. Compilation and whitespace passed.
+Private existing-record projection and restart verification kept every stored SQLite
+table row unchanged; the same workspace was reopened without a new research run.
+
+## Verification-first bottleneck diagnosis (14 October 2026)
+
+This supersedes the eight-job assessment batching described above. The preserved
+local run contains 73 accepted observations: 24 selected and 49 lower relevance.
+Eight selected jobs have preliminary assessments, four are source-confirmed closed,
+and twelve remain pending. Only one nonclosed job has a stored full description;
+the other four full descriptions belong to closed jobs. The remaining 68 jobs are
+snippet evidence. An HTTP 200 or indexed tool result alone does not prove complete
+responsibilities, requirements, or vacancy availability.
+
+The saved run lasted 595.123 seconds against a 900-second outer limit. Its phase
+allocations were discovery 600, enrichment 150 and assessment 150 seconds. Recorded
+AI call time was distributed as follows:
+
+| Work | Recorded seconds | Verified implication |
+| --- | ---: | --- |
+| Four indexed discovery calls | 344.604 | Two additional passes consumed 176.145 seconds, including a 90.193-second failed call |
+| Two private relevance triage calls | 42.529 | Country-sized selection batches prevented one global comparison; source work ran between them |
+| Three successful assessment calls | 94.277 | Eight preliminary decisions retained |
+| One failed assessment call | 53.629 | Five candidates shared one timeout, not five independent CLI failures |
+
+Assessment AI time totals 147.906 seconds, almost the entire 150-second phase.
+Seven location-unverified selected jobs were therefore never evaluated. The remaining
+elapsed time includes source transport, spacing and coordinator work; diagnostics do
+not establish a precise per-request duration, so these are not assigned invented costs.
+There is no evidence of lost saved jobs: all 73 records remain. The original completed
+phase label and four closed jobs counted as cached assessment overstated completion.
+
+Recorded transport comprised three direct LinkedIn searches, five LinkedIn details
+(all HTTP 200), and eight public HTTP requests: four robots requests, two HTTP 200
+pages, one 404 and one 410. Of the two public pages, one exact posting was rejected
+by the HTML fallback and one was a general careers homepage. The exact page uses an
+`article-wrapper`; the parser did not recognize it and could terminate a job region
+at self-closing void tags. Offline replay of the saved bytes now recovers 3,314
+characters from that exact posting, with zero requests and an unchanged snapshot
+hash. The general homepage still fails identity validation. Source access failures
+remain unknown/unverified, never evidence that a vacancy closed.
+
+Selection returned AI priority order but the coordinator converted IDs to a set,
+then read database order and evaluated verified-country groups before unknown-country
+groups. The fix persists shortlist ranks, completes compact triage before source work,
+and uses those ranks for both verification and assessment. Observed employer sources
+are attempted before consented direct LinkedIn details. Broader discovery is deferred
+after one primary indexed pass per selected market. Phase limits were not increased.
+
+Final assessment receives only active verified descriptions, at most two jobs per call
+and a bounded batch context. Large individual descriptions remain intact and isolated;
+duplicate snippet/CV-derived context is omitted. Less than ten seconds remaining does
+not launch another doomed assessment call. Every successful batch survives a later
+failure. Strong recommendations require a verified source description and a literal
+non-metadata duty/requirement quotation; model reasoning still determines career fit.
+Coverage separates preliminary assessments, verified assessments, missing sources and
+pending evaluations. No stored historical assessment is rewritten to invent completion.
+
+Verification: **286 Python tests: 280 passed, one failure and five errors**, no skips;
+**14 DOM tests passed**. Compilation, JavaScript syntax and whitespace checks passed.
+New regressions exercise priority order, compact global triage, complete requirement
+tails, small assessment batches, timeout preservation, insufficient source evidence,
+exact HTML regions and unchanged identity gates. Tests contain synthetic vacancies;
+the existing-record replay remains private. No live AI, publisher research, retry,
+API-key fallback or user database update was performed for this implementation.
+The six earlier failures remain listed as open tasks below and were neither skipped
+nor removed. Offline scheduling improvements do not prove future live source yield.

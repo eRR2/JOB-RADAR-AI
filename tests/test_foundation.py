@@ -112,7 +112,9 @@ class EvidenceRegressions(unittest.TestCase):
         job = {**JOB, 'description': '', 'source_observations': [],
                'partial_source_text': {'text': 'Own system architecture.'}}
         self.assertIn('Own system architecture.', str(context(job)))
-        self.assertTrue(prepare(copy.deepcopy(DECISION), job, {'cv_text': CV}, [])['recommend'])
+        result=prepare(copy.deepcopy(DECISION), job, {'cv_text': CV}, [])
+        self.assertFalse(result['recommend'])
+        self.assertEqual(result['evidence'][0]['job_quote'],'Own system architecture.')
 
     def test_ruling_keyword_alone_does_not_prove_employer_support(self):
         job = {**JOB, 'description': JOB['description'] + ' We do not support the 30% ruling.'}

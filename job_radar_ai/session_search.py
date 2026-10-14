@@ -12,7 +12,7 @@ from .store import SessionExpired, now
 from .location import geography
 from .markets import market_profile, country_of, query_locations
 from .geography import valid_query, scope_for
-from .recommendations import assess, context, private_profile, active
+from .recommendations import assess, private_profile, active, verified_description
 from .identity import normalized_url, linkedin_job_id
 from .history import same_posting
 from .sources import PublicFetcher, RetrievalError
@@ -20,6 +20,8 @@ from .completion import recover, freshness, vacancy_html
 from .linkedin import LinkedIn, SourceError
 from .access import linkedin_state
 from .contracts import validate
+from .reporting import review_state, coverage
+from .verification import triage_batches, ranked_candidates, assessment_batches
 
 PHASE_SECONDS = {'discovery':600,'enrichment':150,'evaluation':150}
 MAX_AI_CALLS = 16
@@ -166,14 +168,18 @@ class SessionSearch(Hunter):
                 'full':sum(bool(j.get('description')) for j in jobs),
                 'partial':sum(bool(j.get('partial_source_text')) and not j.get('description') for j in jobs),
                 'snippet_only':sum(not j.get('description') and not j.get('partial_source_text') for j in jobs)}
-            d['counts']['evaluated']=sum(bool(j.get('preliminary')) for j in jobs)
+            d['coverage']=coverage(jobs,d)
+            d['counts']['evaluated']=d['coverage']['assessed']
             self.store.update_run(run_id,stage,payload)
 
         def phase(name):
             nonlocal phase_end
             if cancel.is_set():raise ProviderError('Canceled by user.','canceled')
             if time.monotonic()>=deadline:raise ProviderError('Total research budget reached; saved findings retained.','total_budget')
-            if d['phase']!=name:d['completed_phases'].append(d['phase'])
+            if d['phase']!=name:
+                incomplete=d.get('phase_outcomes',{}).get(d['phase'])=='partial' or any(f['phase']==d['phase'] for f in d.get('failures',[]))
+                d.setdefault('phase_outcomes',{})[d['phase']]='partial' if incomplete else 'finished'
+                if not incomplete:d['completed_phases'].append(d['phase'])
             d['phase']=name;d['country']=''
             phase_end=min(deadline,time.monotonic()+d['phase_budgets'][name])
             fetcher.deadline=phase_end
@@ -189,6 +195,7 @@ class SessionSearch(Hunter):
             if remaining<=1:raise ProviderError('Phase time budget reached; current results retained.','phase_budget')
             if payload['usage']['ai_invocations']>=MAX_AI_CALLS:raise ProviderError('Bounded AI invocation budget reached; current results retained.','invocation_budget')
             record={'kind':kind,'phase':d['phase'],'country':d['country'],'started_at':now(),'status':'running','seconds':0}
+            record['job_ids']=[j['id'] for j in data.get('jobs',[]) if j.get('id')]
             d['ai_calls'].append(record);payload['usage']['ai_invocations']+=1
             progress('AI '+kind+' · '+d['country'])
             began=time.monotonic();ai.telemetry={}
@@ -268,7 +275,13 @@ class SessionSearch(Hunter):
                     d['discarded_candidates'].extend({'url':safe_url(r['url']) if r['reason']!='unsafe_url' else '[unsafe URL omitted]','reason':r['reason'],'country':d['country']} for r in rejected)
                     continue
                 saved_id=save(job)
-                links.setdefault(saved_id,[]).extend(candidate.get('description_sources',[]))
+                source_refs=[]
+                for ref in candidate.get('description_sources',[]):
+                    try:
+                        if normalized_url(ref['url']) in observed_urls:source_refs.append(ref)
+                    except ValueError:continue
+                links.setdefault(saved_id,[]).extend(source_refs)
+                self.store.upsert_job({'id':saved_id,'description_sources':links[saved_id]})
 
         def direct(query,market):
             if not profile.get('linkedin_consent') or linkedin_state(self.store)['state']!='available' or linkedin.denied_in_run:return
@@ -353,8 +366,10 @@ class SessionSearch(Hunter):
                     payload['warnings'].extend(safe_text(v) for v in result['limitations'])
                     new_avenues=result['next_avenues'];new=d['counts']['accepted']-before
                     expand=result['continue_research'] and new_avenues and passes[m['id']]<2 and new>0 and (queries!=previous_queries or new_avenues!=avenues[m['id']])
-                    if expand:pending.append(m)
-                    d['market_outcomes'][m['id']]={'indexed_passes':passes[m['id']],'new_jobs':new,'status':'more_avenues' if expand else 'avenues_exhausted'}
+                    # Finish the primary market pass, then verify promising sources.
+                    # Broader avenues stay recorded; they do not consume a second web call.
+                    if expand:d.setdefault('deferred_discovery',[]).append(m['id'])
+                    d['market_outcomes'][m['id']]={'indexed_passes':passes[m['id']],'new_jobs':new,'status':'verification_first' if expand else 'avenues_exhausted'}
                     avenues[m['id']]=new_avenues
                 except ProviderError as exc:
                     # Never retry a failed call. Other markets still get their turn.
@@ -367,23 +382,22 @@ class SessionSearch(Hunter):
                     if exc.category in ('execution_error','subscription_usage_limit','provider_rate_limit','model_access'):
                         raise  # Provider-wide failure is not another market's search avenue.
                 progress('Discovery coverage saved · '+m['country'])
-            if pending:payload['warnings'].append('Discovery phase budget reached; saved findings retained.')
+            if pending:
+                payload['warnings'].append('Discovery phase budget reached; saved findings retained.')
+                d.setdefault('phase_outcomes',{})['discovery']='partial'
             if not self.store.jobs() and d.get('failures') and all(v['status'] not in ('avenues_exhausted','more_avenues') for v in d['market_outcomes'].values()):
                 raise ProviderError('Indexed discovery failed: '+'; '.join(f['country']+': '+f['reason'] for f in d['failures'])+'. No automatic retry.','discovery_failed')
             phase('enrichment')
             jobs=[j for j in self.store.jobs() if active(j)]
             shortlisted=set()
-            for start in range(0,len(jobs),40):
-                if not available():payload['warnings'].append('Enrichment phase budget reached.');break
-                batch=jobs[start:start+40]
-                # Triage uses compact verified snippets, not every entire source
-                # observation from every model web search.
-                lean=[{'id':j['id'],'title':j.get('title',''),'company':j.get('company',''),
-                       'location':j.get('location',''),'country':j.get('country',''),
-                       'workplace':j.get('workplace',''),
-                       'source_excerpt':(j.get('description') or ' '.join(
-                            x.get('text','') for x in j.get('source_observations',[])[:2]))[:1050]}
-                      for j in batch]
+            triage_groups=list(triage_batches(jobs))
+            all_by_id={j['id']:j for j in jobs}
+            for batch_index,lean in enumerate(triage_groups):
+                if not available():
+                    payload['warnings'].append('Enrichment phase budget reached.')
+                    d.setdefault('phase_outcomes',{})['enrichment']='partial'
+                    break
+                batch=[all_by_id[item['id']] for item in lean]
                 selection=call('enrichment',ENRICH,
                                {'profile':private_profile(profile),'background':brief,'jobs':lean})
                 validate('enrichment',selection)
@@ -392,60 +406,85 @@ class SessionSearch(Hunter):
                 shortlisted.update(chosen)
                 for considered in batch:
                     self.store.upsert_job({'id':considered['id'],
-                        'shortlist_status':'selected' if considered['id'] in chosen else 'low_relevance'})
+                        'shortlist_status':'selected' if considered['id'] in chosen else 'low_relevance',
+                        'shortlist_rank':chosen.index(considered['id'])*len(triage_groups)+batch_index if considered['id'] in chosen else None,
+                        'description_review':{'status':'pending','reason':'enrichment_budget'} if considered['id'] in chosen else {'status':'not_selected','reason':'triage_not_selected'}})
                 d.setdefault('triage',{'selected':0,'low_relevance':0})
                 d['triage']['selected']+=len(chosen)
                 d['triage']['low_relevance']+=len(batch)-len(chosen)
                 progress('Shortlisted credible candidates · '+str(len(shortlisted)))
-                for job_id in chosen:
-                    if not available():break
-                    job=by_id[job_id];d['country']=job.get('country','') or 'Location unverified'
-                    if job.get('description'):continue
-                    full=None
-                    for o in native:
-                        text=o.get('text') or o.get('content','')
-                        if o.get('url') and normalized_url(o['url'])==normalized_url(job['url']) and o.get('observation_kind')=='page_read' and '<' in text:
-                            page={'url':job['url'],'text':text,'at':now(),'bytes':len(text.encode()),'sha256':hashlib.sha256(text.encode()).hexdigest()}
-                            try:full=vacancy_html(job,page)
-                            except RetrievalError:pass
-                    if not full and job['id'].startswith('linkedin:') and profile.get('linkedin_consent') and linkedin_state(self.store)['state']=='available' and not linkedin.denied_in_run and linkedin.requests<budgets['requests'] and sum(r['operation']=='detail' for r in d['linkedin_direct'])<budgets['details'] and phase_end-time.monotonic()>30:
-                        record={'country':d['country'],'operation':'detail','job_id':job['id'],'status':'running'};d['linkedin_direct'].append(record)
-                        before_requests=linkedin.requests
-                        try:
-                            detail=linkedin.detail(job['source_id']);self.store.upsert_job({**detail,'description_status':'full','description_source':{'kind':'linkedin','url':job['url'],'at':now()}})
-                            record.update(status='received',http_status=200);progress('LinkedIn detail saved');continue
-                        except (SourceError,ProviderError) as exc:
-                            state=linkedin_state(self.store);record.update(status=state['state'] if state['state']!='available' else 'source_failed',http_status=state.get('http_status'),reason=safe_text(str(exc)))
-                        finally:record.update(requests=linkedin.requests-before_requests,cache_hit=linkedin.last_cached)
-                    source_links=list(links.get(job_id,[]))
-                    host=urlsplit(job['url']).hostname or ''
-                    if host!='linkedin.com' and not host.endswith('.linkedin.com'):source_links.insert(0,{'url':job['url'],'employer_url':''})
-                    for link in source_links if not full else []:
-                        if not available():break
-                        url=link['url']
-                        if normalized_url(url) not in observed_urls or normalized_url(url) in unsuccessful:continue
-                        try:full=recover(job,url,link['employer_url'],fetcher,all_markets);break
+            by_id={j['id']:j for j in self.store.jobs()}
+            for candidate in ranked_candidates([j for j in by_id.values() if j['id'] in shortlisted]):
+                job_id=candidate['id']
+                if not available():break
+                job=by_id[job_id];d['country']=job.get('country','') or 'Location unverified'
+                if job.get('description'):
+                    self.store.upsert_job({'id':job_id,'description_review':{'status':'available','reason':'existing_source_text'}})
+                    continue
+                full=None
+                attempts=[]
+                for o in native:
+                    text=o.get('text') or o.get('content','')
+                    if o.get('url') and normalized_url(o['url'])==normalized_url(job['url']) and o.get('observation_kind')=='page_read' and '<' in text:
+                        page={'url':job['url'],'text':text,'at':now(),'bytes':len(text.encode()),'sha256':hashlib.sha256(text.encode()).hexdigest()}
+                        try:full=vacancy_html(job,page)
                         except RetrievalError as exc:
-                            unsuccessful.add(normalized_url(url));self.store.upsert_job({'id':job_id,'description_status':exc.status})
-                    if full:
-                        state=freshness(full)
-                        self.store.upsert_job({'id':job_id,'description':full['description'],'description_status':'public_verified','location':full.get('location') or job.get('location',''),'country':full.get('country') or job.get('country',''),
-                            'requisition_id':full.get('requisition_id') or job.get('requisition_id',''),
-                            'description_source':{'kind':'public_verified','url':full['source_url'],'sha256':full['evidence']['sha256'],'at':now()},'freshness':state,
-                            'availability':'closed_banner_observed' if state['status']=='confirmed_closed' else 'open_publisher_observed' if state['status']=='confirmed_open' else 'unknown'})
-                    progress('Candidate source enrichment recorded')
+                            attempts.append({'url':safe_url(job['url']),'status':exc.status,'reason':safe_text(str(exc))})
+                source_links=list(links.get(job_id,[]))
+                host=urlsplit(job['url']).hostname or ''
+                if host!='linkedin.com' and not host.endswith('.linkedin.com'):source_links.insert(0,{'url':job['url'],'employer_url':''})
+                for link in source_links if not full else []:
+                    if not available():break
+                    url=link['url']
+                    if linkedin_job_id(url) or not urlsplit(url).path.strip('/'):
+                        attempts.append({'url':safe_url(url),'status':'not_a_controlled_job_source','reason':'LinkedIn uses consented guest transport; a homepage is not a job-specific source.'})
+                        continue
+                    if normalized_url(url) not in observed_urls or normalized_url(url) in unsuccessful:continue
+                    try:full=recover(job,url,link['employer_url'],fetcher,all_markets);break
+                    except RetrievalError as exc:
+                        unsuccessful.add(normalized_url(url));self.store.upsert_job({'id':job_id,'description_status':exc.status})
+                        attempts.append({'url':safe_url(url),'status':exc.status,'reason':safe_text(str(exc))})
+                if not full and job['id'].startswith('linkedin:') and profile.get('linkedin_consent') and linkedin_state(self.store)['state']=='available' and not linkedin.denied_in_run and linkedin.requests<budgets['requests'] and sum(r['operation']=='detail' for r in d['linkedin_direct'])<budgets['details'] and phase_end-time.monotonic()>30:
+                    record={'country':d['country'],'operation':'detail','job_id':job['id'],'status':'running'};d['linkedin_direct'].append(record)
+                    before_requests=linkedin.requests
+                    try:
+                        detail=linkedin.detail(job['source_id']);self.store.upsert_job({**detail,'description_status':'full','description_source':{'kind':'linkedin','url':job['url'],'at':now()},'description_review':{'status':'available','reason':'linkedin_detail','attempts':attempts}})
+                        record.update(status='received',http_status=200);progress('LinkedIn detail saved');continue
+                    except (SourceError,ProviderError) as exc:
+                        state=linkedin_state(self.store);record.update(status=state['state'] if state['state']!='available' else 'source_failed',http_status=state.get('http_status'),reason=safe_text(str(exc)))
+                        attempts.append({'url':safe_url(job['url']),'status':record['status'],'reason':record['reason']})
+                    finally:record.update(requests=linkedin.requests-before_requests,cache_hit=linkedin.last_cached)
+                if full:
+                    state=freshness(full)
+                    self.store.upsert_job({'id':job_id,'description':full['description'],'description_status':'public_verified','location':full.get('location') or job.get('location',''),'country':full.get('country') or job.get('country',''),
+                        'requisition_id':full.get('requisition_id') or job.get('requisition_id',''),
+                        'description_source':{'kind':'public_verified','url':full['source_url'],'sha256':full['evidence']['sha256'],'at':now()},'freshness':state,
+                        'availability':'closed_banner_observed' if state['status']=='confirmed_closed' else 'open_publisher_observed' if state['status']=='confirmed_open' else 'unknown'})
+                self.store.upsert_job({'id':job_id,'description_review':{
+                    'status':'available' if full else 'incomplete',
+                    'reason':'verified_source' if full else 'enrichment_budget' if not available() else 'source_validation_or_access' if attempts else 'no_observed_description_source',
+                    'attempts':attempts}})
+                progress('Candidate source enrichment recorded')
+            if any(j.get('shortlist_status')=='selected' and j.get('description_review',{}).get('status')=='pending' for j in self.store.jobs()):
+                d.setdefault('phase_outcomes',{})['enrichment']='partial'
             phase('evaluation')
-            jobs=[j for j in self.store.jobs() if j['id'] in shortlisted];groups=[]
+            selected_jobs=[j for j in self.store.jobs() if j['id'] in shortlisted]
+            jobs=ranked_candidates([j for j in selected_jobs if active(j) and verified_description(j)]);groups=[]
+            d['verification']={'selected':len(selected_jobs),'ready_for_assessment':len(jobs),'source_pending':sum(active(j) and not verified_description(j) for j in selected_jobs)}
             for m in markets:
                 for verified in (True,False):
                     groups.append((m,verified,[j for j in jobs if geography(j,all_markets)['country_id']==m['id'] and (country_of(j,all_markets)==m['id'])==verified]))
             groups.append((None,False,[j for j in jobs if not geography(j,all_markets)['country_id']]))
-            queue=[(m,v,g) for m,v,g in groups if g]
+            queue=[(m,v,b) for m,v,g in groups for b in assessment_batches(g)]
+            queue.sort(key=lambda entry:entry[2][0].get('shortlist_rank',10**9))
+            stop_reason=None
             while queue:
                 m,verified,group=queue.pop(0)
                 if not group:continue
-                if len(group)>20:queue.append((m,verified,group[20:]))
-                group=group[:20]
+                if phase_end-time.monotonic()<10:
+                    stop_reason='evaluation_budget'
+                    d.setdefault('failures',[]).append({'phase':'evaluation','country':m['country'] if m else 'Location unverified','reason':'phase_budget','stage':'Insufficient remaining window for another bounded assessment; no CLI call started'})
+                    break
                 d['country']=m['country'] if m else 'Location unverified'
                 scoped=market_profile(profile,m,self.store) if m else {**profile,'authoritative_request':profile.get('looking_for','')}
                 scoped['learned_preferences']=(self.store.get('learned:'+m['id'],[]) if verified else [])+global_learning
@@ -462,14 +501,32 @@ class SessionSearch(Hunter):
                         'country':d['country'],'reason':getattr(exc,'category','validation_error'),
                         'stage':'Batch withheld; valid earlier groups retained'})
                     payload['warnings'].append('Evaluation incomplete for '+d['country'])
-                    if getattr(exc,'category','') in ('subscription_usage_limit','model_access','provider_rate_limit'):
+                    if isinstance(exc,ProviderError):
+                        category=exc.category
+                        stop_reason='evaluation_timeout' if category=='time_window' else 'evaluation_budget' if category in ('phase_budget','total_budget','invocation_budget') else 'evaluation_error'
                         break
                 progress('Batched career suitability saved · '+d['country'])
-            d['completed_phases'].append('evaluation')
+            states={}
+            for job in self.store.jobs():
+                state=review_state(job,d)
+                if state['status']=='pending' and job['id'] in shortlisted and active(job) and not verified_description(job):
+                    state={'status':'pending','reason':'full_source_required'}
+                elif state['status']=='pending' and stop_reason:
+                    state={'status':'pending','reason':stop_reason}
+                states[job['id']]=state
+                self.store.upsert_job({'id':job['id'],'review_state':state})
+            d['review_states']=states
+            remaining=coverage(self.store.jobs(),d)
+            incomplete=remaining['pending']+remaining['needs_verification']>0
+            d.setdefault('phase_outcomes',{})['evaluation']='partial' if incomplete else 'finished'
+            if incomplete:payload['warnings'].append('Assessment coverage incomplete; saved vacancies are retained with explicit review reasons.')
+            else:d['completed_phases'].append('evaluation')
+            if any(j['id'] in shortlisted and active(j) and not j.get('description') for j in self.store.jobs()):
+                payload['warnings'].append('Some shortlisted vacancies lack a verified full description; final assessment awaits source verification.')
             if not shortlisted and self.store.jobs():
                 payload['warnings'].append('No vacancies passed evidence-aware career triage; research findings remain available.')
             status='canceled' if cancel.is_set() else 'partial' if payload['warnings'] else 'completed'
-            d['stop']={'phase':d['phase'],'reason':'canceled' if cancel.is_set() else 'completed_with_limitations' if payload['warnings'] else 'completed'}
+            d['stop']={'phase':d['phase'],'reason':'canceled' if cancel.is_set() else stop_reason or ('completed_with_limitations' if payload['warnings'] else 'completed')}
         except SessionExpired:return
         except Exception as exc:
             category=getattr(exc,'category','validation_error')
