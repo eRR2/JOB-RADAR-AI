@@ -216,11 +216,17 @@ class Store:
                 merged['evidence']=old_payload.get('evidence','Closed banner previously observed')
             changed=bool(old and any(merged.get(key)!=old_payload.get(key) for key in ('description','title','company','location','availability')))
             carried_status = historical['application_status'] if historical else 'none'
+            mail_status = None
+            if old is None and carried_status in ('none','saved'):
+                from .outlook_history import recorded_decision_for
+                mail_status = recorded_decision_for(db,merged)
+                if mail_status:
+                    carried_status = mail_status
             db.execute('''INSERT INTO jobs(id,payload,first_seen,last_seen,application_status)
                 VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
                 payload=excluded.payload,last_seen=excluded.last_seen''',
                 (job['id'], json.dumps(merged), timestamp, timestamp, carried_status))
-            keep_history(db,merged,timestamp)
+            keep_history(db,merged,timestamp,status=mail_status,source='outlook_read_only' if mail_status else None)
             if changed:
                 db.execute('UPDATE market_evaluations SET content_stale=1 WHERE job_id=?',(job['id'],))
             if market_id:
@@ -379,7 +385,7 @@ class Store:
         with self.db() as db:
             if not db.in_transaction:db.execute('BEGIN IMMEDIATE')
             db.execute('PRAGMA secure_delete=ON')
-            for table in ('market_evaluations','job_markets','feedback_scopes','observations', 'feedback', 'application_events', 'jobs', 'runs', 'cache', 'settings'):
+            for table in ('market_evaluations','job_markets','feedback_scopes','observations', 'feedback', 'application_events', 'jobs', 'runs', 'cache', 'settings', 'job_history', 'outlook_evidence'):
                 db.execute('DELETE FROM ' + table)
         with self.db() as db:
             db.execute('VACUUM')
