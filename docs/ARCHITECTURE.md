@@ -14,6 +14,9 @@ Each selected market gets one primary discovery pass, with broader avenues expli
 deferred. Observed job-specific publisher sources precede consented LinkedIn detail
 requests. Only active verified full descriptions enter final assessment, at most two
 per call, with long descriptions isolated rather than truncating their requirements.
+Assessment batches contain only consecutive jobs in global priority order sharing
+the same market and verified/inferred country scope. A scope change ends the current
+batch; a later job from the earlier market cannot jump ahead of intervening candidates.
 Each invalid assessment is withheld
 independently; old recommendations cannot remain active after failed verification.
 The browser has Recommended and All Opportunities, with a separate previous-leads

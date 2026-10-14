@@ -118,6 +118,7 @@ Historical tasks above do not override the current contract.
 - [x] Preserve AI shortlist order; verify exact sources before small full-description assessment batches.
 - [x] Expose partial coverage, source gaps, unverified title terms and exact local application status.
 - [x] Replay saved publisher bytes privately and add synthetic scheduling/source/report regressions.
+- [x] Reproduce cross-country priority leapfrogging and batch only contiguous equal market/country-confidence scopes; preserve scoped context and timeout outcomes.
 - [ ] `test_catchup.test_failed_start_does_not_consume_slot_and_skill_scheduler_never_runs`: simple-preview catch-up returns None.
 - [ ] `test_catchup.test_reminder_survives_restart_without_consuming_due_search`: same catch-up contract mismatch.
 - [ ] `test_catchup.test_run_now_records_one_attempt_and_duplicate_click_cannot_start_another`: same catch-up contract mismatch.

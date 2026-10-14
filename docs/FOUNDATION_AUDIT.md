@@ -253,3 +253,23 @@ the existing-record replay remains private. No live AI, publisher research, retr
 API-key fallback or user database update was performed for this implementation.
 The six earlier failures remain listed as open tasks below and were neither skipped
 nor removed. Offline scheduling improvements do not prove future live source yield.
+
+## Cross-country assessment order correction
+
+Review of `d9d6cfe` found that grouping countries before batching still violated global
+priority: DE-1, NL-2, NL-3, DE-4 became DE[1,4], NL[2,3]. Sorting batches by their first
+rank did not fix the lower-priority job inside the first batch. Three coordinator
+regressions reproduced this ordering, the same leapfrog across verified/inferred
+country scopes, and the incorrect retained assessment of DE-4 before an NL timeout.
+
+The coordinator now forms contiguous scope runs from globally ordered ready jobs,
+then applies the existing count/context bounds to each run. The example executes
+DE[1], NL[2,3], DE[4]. Market profiles, hard requirements, country-specific learning
+and feedback remain isolated; inferred and unknown country scopes receive no
+country-specific feedback or learning. Successful earlier work survives a later
+timeout without assessing a lower-priority country tail. All three new tests fail
+before the fix and pass afterward using synthetic retained records and no network.
+The six previously recorded catch-up/launcher failures remain open.
+Full offline verification ran **289 Python tests: 283 passed, one failure and five
+errors**, with no skips. The failing test names and causes are unchanged. Compilation
+and whitespace checks passed; no live AI or publisher request was performed.

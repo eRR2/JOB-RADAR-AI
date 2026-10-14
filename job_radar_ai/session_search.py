@@ -471,12 +471,18 @@ class SessionSearch(Hunter):
             selected_jobs=[j for j in self.store.jobs() if j['id'] in shortlisted]
             jobs=ranked_candidates([j for j in selected_jobs if active(j) and verified_description(j)]);groups=[]
             d['verification']={'selected':len(selected_jobs),'ready_for_assessment':len(jobs),'source_pending':sum(active(j) and not verified_description(j) for j in selected_jobs)}
-            for m in markets:
-                for verified in (True,False):
-                    groups.append((m,verified,[j for j in jobs if geography(j,all_markets)['country_id']==m['id'] and (country_of(j,all_markets)==m['id'])==verified]))
-            groups.append((None,False,[j for j in jobs if not geography(j,all_markets)['country_id']]))
+            # Batch only adjacent jobs with the same country/learning scope.
+            # Collecting each country's tail first would leapfrog global priority.
+            for job in jobs:
+                country_id=geography(job,all_markets)['country_id']
+                m=next((m for m in markets if m['id']==country_id),None)
+                if country_id and m is None:continue
+                verified=bool(m and country_of(job,all_markets)==m['id'])
+                if groups and groups[-1][0]==m and groups[-1][1]==verified:
+                    groups[-1][2].append(job)
+                else:
+                    groups.append((m,verified,[job]))
             queue=[(m,v,b) for m,v,g in groups for b in assessment_batches(g)]
-            queue.sort(key=lambda entry:entry[2][0].get('shortlist_rank',10**9))
             stop_reason=None
             while queue:
                 m,verified,group=queue.pop(0)
