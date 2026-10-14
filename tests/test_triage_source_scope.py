@@ -140,6 +140,92 @@ class TriageSourceScopeTests(unittest.TestCase):
         self.assertFalse(closed_for_review(updated))
         with self.assertRaises(ValueError):observation(job,job['url'],'closed','HTTP 404',http_status=404)
 
+    def test_own_channel_closure_without_full_description_excludes_review(self):
+        from job_radar_ai.availability import observation,closed_for_review
+        from job_radar_ai.recommendations import active
+        from job_radar_ai.reporting import review_state,coverage
+        job=dict(id='linkedin:123456',url='https://linkedin.com/jobs/view/systems-owner-123456?trk=synthetic',
+            availability='unknown',shortlist_status='low_relevance',evaluation_status='preliminary_pending',
+            review_state={'status':'not_selected','reason':'triage_not_selected'})
+        note=observation(job,job['url'],'closed','No longer accepting applications',
+            provenance='user_reported',reported_at='2026-01-01T10:00:00Z')
+        job['source_availability']={note['url']:note}
+        for source in (None,{}, {'kind':'snippet'}):
+            with self.subTest(description_source=source):
+                candidate={**job,'description_source':source}
+                self.assertTrue(closed_for_review(candidate))
+                self.assertFalse(active(candidate))
+                self.assertEqual(review_state(candidate),{'status':'excluded','reason':'confirmed_closed'})
+                counts=coverage([candidate])
+                self.assertEqual(counts['excluded'],1)
+                self.assertEqual(counts['not_selected'],0)
+                self.assertEqual(counts['pending'],0)
+        self.assertEqual(job['availability'],'unknown')
+        self.assertIsNone(note['checked_at'])
+
+    def test_verified_official_open_overrides_channel_closure_but_unknown_does_not(self):
+        from job_radar_ai.availability import observation,closed_for_review
+        from job_radar_ai.recommendations import active
+        from job_radar_ai.reporting import review_state
+        job=dict(id='linkedin:123456',url='https://linkedin.com/jobs/view/123456',availability='unknown')
+        note=observation(job,job['url'],'closed','No longer accepting applications',provenance='user_reported')
+        official='https://employer.example/jobs/REQ-42'
+        job.update(description=full_job()['description'],description_source={'kind':'public_verified','url':official})
+        available=observation(job,official,'open','Apply for REQ-42',checked_at='2026-01-02T10:00:00Z')
+        job['source_availability']={note['url']:note,official:available}
+        self.assertFalse(closed_for_review(job))
+        self.assertTrue(active(job))
+        self.assertNotEqual(review_state(job)['reason'],'confirmed_closed')
+        for status in (None,404,429):
+            with self.subTest(http_status=status):
+                unknown=observation(job,official,'unknown',http_status=status)
+                candidate={**job,'source_availability':{note['url']:note,official:unknown}}
+                self.assertTrue(closed_for_review(candidate))
+                self.assertFalse(active(candidate))
+                self.assertEqual(unknown['status'],'unknown')
+
+    def test_transport_failure_and_other_identity_do_not_close_own_channel(self):
+        from job_radar_ai.availability import observation,closed_for_review
+        job=dict(id='linkedin:123456',url='https://linkedin.com/jobs/view/123456',availability='unknown')
+        other=dict(id='linkedin:123457',url='https://linkedin.com/jobs/view/123457')
+        note=observation(other,other['url'],'closed','No longer accepting applications')
+        for status in (404,410,429):
+            with self.subTest(http_status=status):
+                unknown=observation(job,job['url'],'unknown',http_status=status)
+                self.assertFalse(closed_for_review({**job,'source_availability':{note['url']:note,unknown['url']:unknown}}))
+
+    def test_unverified_alternate_source_cannot_override_own_channel_closure(self):
+        from job_radar_ai.availability import observation,closed_for_review
+        job=dict(id='linkedin:123456',url='https://linkedin.com/jobs/view/123456',availability='unknown')
+        note=observation(job,job['url'],'closed','No longer accepting applications')
+        official='https://employer.example/jobs/REQ-42'
+        available=observation(job,official,'open','Apply for REQ-42')
+        for kind in (None,'snippet','user_supplied'):
+            with self.subTest(kind=kind):
+                candidate={**job,'description_source':{'kind':kind,'url':official},
+                    'source_availability':{note['url']:note,official:available}}
+                self.assertTrue(closed_for_review(candidate))
+
+    def test_dashboard_projects_channel_closure_without_rewriting_stored_job(self):
+        from job_radar_ai.availability import observation
+        from job_radar_ai.server import Application
+        (self.root/'version.json').write_text('{"version":"5.3.0-preview"}',encoding='utf-8')
+        app=Application(self.root,self.root/'state.sqlite3')
+        app.store.set('providers',{'codex':{'status':'Synthetic offline fixture'}})
+        job=dict(id='linkedin:123456',url='https://linkedin.com/jobs/view/123456',availability='unknown',
+            shortlist_status='low_relevance',review_state={'status':'not_selected','reason':'triage_not_selected'})
+        note=observation(job,job['url'],'closed','No longer accepting applications',provenance='user_reported')
+        app.store.upsert_job({**job,'source_availability':{note['url']:note}})
+        before=app.store.jobs()
+        with patch('job_radar_ai.server.Provider',side_effect=AssertionError('No provider execution')):
+            state=app.state()
+        projected=state['jobs'][0]
+        self.assertTrue(projected['availability_review_closed'])
+        self.assertEqual(projected['review_state'],{'status':'excluded','reason':'confirmed_closed'})
+        self.assertEqual(state['review_coverage']['excluded'],1)
+        self.assertEqual(state['review_coverage']['not_selected'],0)
+        self.assertEqual(app.store.jobs(),before)
+
     def test_404_alternative_source_is_attempted_and_failure_stays_unknown(self):
         original='https://employer.example/jobs/old';moved='https://employer.example/jobs/new'
         class AI(fixtures.ScriptedAI):

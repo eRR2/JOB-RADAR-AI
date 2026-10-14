@@ -151,3 +151,19 @@ test('channel closure and HTTP 404 are separate from the exact official posting 
   assert.match(text,/missing_or_moved.*404/);assert.doesNotMatch(run('freshnessLabel(j)'),/confirmed closed/);
 });
 
+test('projected own-channel closure agrees across freshness, eligibility and review reason',()=>{
+  const {run}=fixture();run(`const j={id:'closed-channel',title:'Synthetic closed role',url:'https://www.linkedin.com/jobs/view/123456',availability:'unknown',availability_review_closed:true,review_state:{status:'excluded',reason:'confirmed_closed'},preliminary:{recommend:true},source_availability:{'https://www.linkedin.com/jobs/view/123456':{url:'https://www.linkedin.com/jobs/view/123456',channel:'linkedin',status:'closed',provenance:'user_reported',quote:'No longer accepting applications',checked_at:null}}};`);
+  for(const full of [false,true]){
+    run(`j.description=${full}?'Verified duties. '.repeat(20):'';j.description_source=${full}?{kind:'linkedin',url:j.url}:null;`);
+    assert.equal(run('recommended(j)'),false);
+    assert.equal(run('review(j).reason'),'confirmed_closed');
+    assert.equal(run('freshnessLabel(j)'),'Source channel confirmed closed');
+    const text=run('card(j).text');
+    assert.match(text,/Excluded from suitability review: source confirmed closed/);
+    assert.match(text,/linkedin: closed/);assert.match(text,/user_reported/);
+    assert.match(text,/Check time unknown/);assert.doesNotMatch(text,/Publisher-confirmed closed/);
+    run(`state.jobs=[j];tab='all';`);
+    assert.match(run('discover().text'),/Synthetic closed role/);
+  }
+});
+

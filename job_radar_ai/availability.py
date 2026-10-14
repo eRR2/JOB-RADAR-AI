@@ -33,12 +33,13 @@ def merge_states(*collections):
 
 
 def closed_for_review(job):
-    source=(job.get('description_source') or {}).get('url')
+    description_source=job.get('description_source') or {}
+    source=description_source.get('url') if description_source.get('kind') in ('public_verified','linkedin') else None
     states=job.get('source_availability',{})
-    if source and normalized_url(source) in states:
-        state=states[normalized_url(source)]
-        if state['status']=='closed':return True
-        if state['status']=='open':return False
-        original=job.get('freshness',{}).get('source_url') or job.get('url','')
-        if original and normalized_url(source)!=normalized_url(original) and state.get('provenance')=='publisher_observed' and state.get('access_status')=='observed':return False
-    return job.get('availability')=='closed_banner_observed' or job.get('freshness',{}).get('status')=='confirmed_closed'
+    # The verified description's publication has precedence over the discovery
+    # channel. Unknown access cannot override explicit evidence on either one.
+    for url in (source,job.get('url')):
+        state=states.get(normalized_url(url),{}) if url else {}
+        if state.get('status')=='closed':return True
+        if state.get('status')=='open':return False
+    return job.get('availability')=='closed_banner_observed' or (job.get('freshness') or {}).get('status')=='confirmed_closed'

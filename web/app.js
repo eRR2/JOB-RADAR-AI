@@ -23,7 +23,7 @@ function evidenceLabel(job){
   if(job.source_observations?.length)return 'Preliminary · search snippet only';
   return 'Description unavailable';
 }
-function freshnessLabel(job){return reviewClosed(job)?'Publisher-confirmed closed':job.freshness?.status==='confirmed_open'?'Publisher-confirmed open':'Güncellik doğrulanmadı';}
+function freshnessLabel(job){return reviewClosed(job)?'Source channel confirmed closed':job.freshness?.status==='confirmed_open'?'Publisher-confirmed open':'Güncellik doğrulanmadı';}
 function toast(text,error=false){$('#toast').textContent=text;$('#toast').className=error?'error':'';$('#toast').hidden=false;setTimeout(()=>$('#toast').hidden=true,6000);}
 async function api(path,data){
   const response=await fetch(path,{method:data===undefined?'GET':'POST',headers:data===undefined?{}:{'Content-Type':'application/json','X-Radar-CSRF':state.csrf},body:data===undefined?undefined:JSON.stringify(data)});

@@ -352,3 +352,31 @@ and authorized-change receipts stay private.
 Final offline checks: **304 Python tests and 16 DOM tests passed**, zero skips;
 compilation, JavaScript syntax and whitespace checks passed. The dashboard was closed
 after prior notice for the unchanged first-launch fixture and remains closed.
+
+## Own-channel closure regression (15 October 2026)
+
+The review predicate previously inspected only the description-source URL and
+legacy aggregate flags. A snippet-only vacancy with aggregate availability unknown
+therefore ignored explicit closure on its own normalized posting URL. An unknown
+alternate-source observation could also bypass the original channel's evidence.
+Synthetic regressions reproduced both defects before implementation; the dashboard
+projection also returned the stale triage exclusion instead of the closure reason.
+
+Review now checks the verified description publication first, then the vacancy's
+own normalized URL, then legacy flags. Explicit open evidence on the verified exact
+publication retains precedence over closure on the discovery channel. Unknown access
+and unverified alternate text cannot override explicit channel evidence; 404/410/429
+alone still do not establish closure. Freshness uses "Source channel confirmed closed"
+without implying closure of other publications. Review eligibility, closure reason
+and coverage use the same predicate; closed cards remain in All Opportunities.
+
+Read-only inspection of the retained reported closure confirmed that no full
+description source exists, aggregate availability is unknown, and source-channel
+closure retains user-report provenance and an unknown check time. The corrected
+dashboard projection excludes it for closure without rewriting its stored triage
+state or inferring employer publication status. User table contents remained unchanged.
+
+Validation: **309 Python tests and 17 offline DOM tests passed**, zero skips.
+The unchanged launcher regression ran with the dashboard already closed. Compilation,
+JavaScript syntax and whitespace checks passed. No live research or user-record write
+was performed; exact employer-publication verification remains open.
