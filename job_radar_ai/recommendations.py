@@ -22,6 +22,14 @@ exceptional/strong opportunities supported by direct evidence and a convincing n
 Application and Obsolete state exclude this exact posting, never other employer postings.
 Use feedback ONLY in the supplied country scope. Return one assessment for each job.'''
 TASK += ' Keep each next_step under 80 words. Use one or two SHORT exact evidence pairs and at most three material gaps per job; no repetitive prose.'
+TASK += ''' Explain WHY suitable, the key unmet skills, whether this is real decision
+authority or only coordination, and what compromise is needed. State salary, hours and
+hybrid only when found in the supplied posting; distinguish posted compensation from
+an estimate. For Dutch roles, report employer ruling support only if explicitly evidenced
+by the posting. Personal tax eligibility is ALWAYS unverified and must not be inferred.
+Company brand or nominal Manager/Architect title is not a proxy for seniority or relevance.
+Never fill Recommended with weak matches merely to reach a target count.'''
+
 
 
 def active(job):
@@ -60,6 +68,10 @@ def prepare(item, job, profile, feedback):
             raise ValueError('Career assessment source quote is not observed evidence.')
         if not exact_quote(quote['cv_quote'],profile.get('cv_text', '')):
             raise ValueError('Career assessment CV quote is not verbatim evidence.')
+    if item.get('ruling_employer_support') == 'stated':
+        source = evidence_text(job).casefold()
+        if 'ruling' not in source and '30%' not in source and '30 percent' not in source:
+            item = {**item, 'ruling_employer_support':'unknown'}
     result = {**item, 'policy': POLICY, 'at': now(), 'signature': signature(job, profile, feedback), 'market_id': profile.get('market', {}).get('id') if feedback else None}
     result['recommend'] = bool(item['recommend'] and item['priority'] in ('exceptional', 'strong')
                                and item['category'] not in ('unrelated', 'needs_verification')
