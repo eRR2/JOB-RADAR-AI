@@ -35,8 +35,10 @@ def same_posting(a, b):
     if ca and cb and ca != cb:
         return False
     ra, rb = request_id(a), request_id(b)
-    if ra and rb and ca and cb:
+    if ra and rb and ca and cb and (a.get('requisition_id') or a.get('job_requisition_id')) and (b.get('requisition_id') or b.get('job_requisition_id')):
         return ra == rb
+    # LinkedIn IDs and official ATS requisition IDs have different namespaces.
+    # They can still refer to the exact same company/title/locality position.
     try:
         if normalized_url(a.get('url', '')) == normalized_url(b.get('url', '')) and a.get('url') and b.get('url'):
             return True
@@ -65,7 +67,7 @@ def historical_key(job):
     if company and folded(job.get('title')) and folded(job.get('location')):
         stem = '|'.join((company, folded(job.get('title')), folded(job.get('location'))))
         return 'role:' + hashlib.sha256(stem.encode()).hexdigest()[:24]
-    return 'url:' + hashlib.sha256(normalized_url(job['url']).encode()).hexdigest()[:24]
+    return 'url:' + hashlib.sha256(normalized_url(job.get('url','') or job.get('id','unknown')).encode()).hexdigest()[:24]
 
 
 def create_history_table(db):
@@ -92,6 +94,11 @@ def keep_history(db, job, timestamp, status=None, source=None):
     import json
     found = match_history(db, job)
     identity = found['identity'] if found else historical_key(job)
+    if not found and db.execute('SELECT 1 FROM job_history WHERE identity=?',(identity,)).fetchone():
+        # A same-title/same-city posting with materially different text must not
+        # overwrite another, even if its fallback role fingerprint collides.
+        suffix = hashlib.sha256(str(job.get('url') or job.get('id')).encode()).hexdigest()[:12]
+        identity += ':' + suffix
     old = json.loads(found['payload']) if found else {}
     merged = {**old, **job}
     first = found['first_seen'] if found else timestamp
