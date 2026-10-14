@@ -90,7 +90,8 @@ class DiscoveryFirstTests(unittest.TestCase):
         jobs={j['id']:j for j in self.store.jobs()}
         self.assertEqual(jobs['linkedin:123458']['country'],'Netherlands')
         self.assertEqual(jobs['linkedin:123456']['description_source']['kind'],'linkedin')
-        self.assertFalse(jobs['linkedin:123457']['preliminary']['recommend'])
+        self.assertEqual(jobs['linkedin:123457'].get('shortlist_status'),'low_relevance')
+        self.assertFalse(jobs['linkedin:123457'].get('preliminary',{}).get('recommend',False))
         self.assertFalse(any(r.get('job_id')=='linkedin:123457' for r in payload['diagnostics']['linkedin_direct']))
         self.assertEqual(transport.call_count,3)
         self.assertEqual(payload['requests'],3)
