@@ -100,4 +100,9 @@ SCHEMAS['priority_v52']['properties']['assessments']['items']['properties'].upda
     'ruling_eligibility': enum('unverified','not_applicable'),
 })
 SCHEMAS['research_v5']['properties']['jobs']['items']['properties']['requisition_id'] = string(200)
+SCHEMAS['enrichment']['properties']['decisions'] = array(obj({
+    'job_id':string(250),'action':enum('verify','needs_evidence','low_relevance'),
+    'basis':enum('observed_mismatch','missing_evidence','unknown'),
+    'reason':string(1200),'transferable_fit':string(800),'specialist_gap':string(800),
+    'source_quote':string(1500),'missing_information':array(string(500),3)}),80)
 

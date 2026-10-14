@@ -137,3 +137,17 @@ test('snippet commentary separates compact known fit and missing information',()
   assert.ok((page.text.match(/Repeated/g)||[]).length<=45);
 });
 
+test('per-job triage distinguishes transferability from unverified specialist requirements',()=>{
+  const {run}=fixture();run(`const j={id:'triaged',title:'Synthetic role',url:'https://example.org/job',triage_decision:{action:'needs_evidence',reason:'Full requirements unavailable',transferable_fit:'Architecture ownership can transfer',specialist_gap:'Mandatory depth remains unknown'}};`);
+  const text=run('card(j).text');assert.match(text,/Architecture ownership can transfer/);
+  assert.match(text,/Mandatory depth remains unknown/);assert.match(text,/Full requirements unavailable/);
+});
+
+test('channel closure and HTTP 404 are separate from the exact official posting state',()=>{
+  const {run}=fixture();run(`const j={id:'channels',title:'Synthetic role',url:'https://linkedin.com/jobs/view/123456',availability:'closed_banner_observed',availability_review_closed:false,description:'Verified duties. '.repeat(20),description_source:{kind:'public_verified',url:'https://employer.example/jobs/42'},preliminary:{recommend:true},source_availability:{'https://linkedin.com/jobs/view/123456':{channel:'linkedin',status:'closed',provenance:'user_reported',quote:'No longer accepting applications',checked_at:null,reported_at:'2026-01-01T10:00:00Z'},'https://employer.example/jobs/old':{channel:'publisher',status:'unknown',access_status:'missing_or_moved',http_status:404,checked_at:'2026-01-01T10:00:00Z'}}};`);
+  assert.equal(run('recommended(j)'),true);
+  const text=run('card(j).text');assert.match(text,/linkedin.*closed/);assert.match(text,/user_reported/);
+  assert.match(text,/No longer accepting applications/);assert.match(text,/Check time unknown/);
+  assert.match(text,/missing_or_moved.*404/);assert.doesNotMatch(run('freshnessLabel(j)'),/confirmed closed/);
+});
+

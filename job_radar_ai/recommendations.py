@@ -3,6 +3,7 @@ import hashlib
 import json
 from .hunter import profile_signature, source_context
 from .store import now
+from .availability import closed_for_review
 
 POLICY = 'weekly-verified-v2'
 PRIORITIES = {'exceptional': 4, 'strong': 3, 'consider': 2, 'weak': 1, 'unsuitable': 0}
@@ -23,6 +24,8 @@ exceptional/strong opportunities with verified full publisher descriptions, lite
 duty/requirement evidence and a convincing next step. Snippets and partial text are
 verification candidates, never final strong recommendations.
 Application and Obsolete state exclude this exact posting, never other employer postings.
+Application state does not change technical suitability, category or specialist gaps;
+an already-applied direct fit remains a direct fit with no new-application recommendation.
 Use feedback ONLY in the supplied country scope. Return one assessment for each job.'''
 TASK += ' Keep each next_step under 80 words. Use one or two SHORT exact evidence pairs and at most three material gaps per job; no repetitive prose.'
 TASK += ''' Explain WHY suitable, the key unmet skills, whether this is real decision
@@ -50,8 +53,7 @@ Title-derived field hints are unverified publication metadata, not confirmed ter
 
 def active(job):
     return not (job.get('obsolete') or job.get('identity_review_required') or
-                job.get('availability') == 'closed_banner_observed' or
-                job.get('freshness', {}).get('status') == 'confirmed_closed' or
+                closed_for_review(job) or
                 job.get('application_status', 'none') not in ('none', 'saved'))
 
 

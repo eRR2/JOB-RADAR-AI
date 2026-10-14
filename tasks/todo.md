@@ -126,4 +126,8 @@ Historical tasks above do not override the current contract.
 - [x] `test_markets.test_catchup_all_outcomes_are_one_persistent_run`: mock accepts, asserts and forwards `all`; both country results and duplicate refusal pass.
 - [x] `test_skill_launch.test_first_launch_returns_without_inheriting_agent_pipes_and_reuses_workspace`: unchanged test passes with dashboard closed; shared workspace lock remains required.
 - [x] Reject current-preview `--scheduled` entry before opening storage/providers; synthetic regression failed before fix and passes afterward.
+- [x] Preserve individual source-grounded triage and separate unknown specialist evidence from observed mismatch.
+- [x] Match authorized acknowledgements using bounded sender metadata; reconsider late requisitions and preserve manual corrections.
+- [x] Store channel-specific publication evidence and transport outcomes; validate exact requisitions across moved URLs.
+- [ ] Establish the exact original employer publication for the user-reported closed LinkedIn listing; retain unknown employer status until verified.
 

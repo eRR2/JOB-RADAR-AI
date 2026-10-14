@@ -35,6 +35,7 @@ def email_decision(message):
 def _matches(message, job):
     """Never infer identity from company alone."""
     parts = [str(message.get(k,'') or '')[:3000] for k in ('subject','bodyPreview','body_preview')]
+    parts.append(sender_name(message))
     text = folded(' '.join(parts))
     company = folded(job.get('company'))
     if not company or not re.search(r'(?<!\w)' + re.escape(company) + r'(?!\w)', text):
@@ -44,6 +45,12 @@ def _matches(message, job):
         return bool(re.search(r'(?<!\w)' + re.escape(req) + r'(?!\w)', text))
     title = folded(job.get('title'))
     return bool(title and len(title)>8 and re.search(r'(?<!\w)' + re.escape(title) + r'(?!\w)', text))
+
+
+def sender_name(message):
+    sender=message.get('sender') or {}
+    address=sender.get('emailAddress',{}) if isinstance(sender,dict) else {}
+    return str(message.get('sender_name') or (address.get('name','') if isinstance(address,dict) else ''))[:200]
 
 
 def match_outlook_messages(store, messages, folder_name='Job Radar'):
@@ -71,7 +78,8 @@ def match_outlook_messages(store, messages, folder_name='Job Radar'):
             # mailbox can be imported BEFORE a future vacancy is discovered.
             # No full body, sender credentials, HTML or commands are stored.
             evidence={'subject':str(message.get('subject',''))[:400],
-                      'bodyPreview':str(message.get('bodyPreview') or message.get('body_preview') or '')[:2000]}
+                      'bodyPreview':str(message.get('bodyPreview') or message.get('body_preview') or '')[:2000],
+                      'sender_name':sender_name(message)}
             mail_key=hashlib.sha256((str(message.get('id',''))+
                           evidence['subject']+str(message.get('receivedDateTime',''))).encode()).hexdigest()
             inserted = db.execute('''INSERT INTO outlook_evidence(evidence_id,payload,decision,received_at)
@@ -84,7 +92,8 @@ def match_outlook_messages(store, messages, folder_name='Job Radar'):
                 metrics['ambiguous']+=1
                 continue
             record=matches[0]
-            if record['status_source']=='manual' and record['application_status'] not in ('none','saved'):
+            confirmed=json.loads(record['payload']).get('application_status_confirmation',{})
+            if record['status_source']=='manual' and (record['application_status'] not in ('none','saved') or confirmed.get('status')=='none'):
                 continue
             if record['application_status']=='rejected' and status=='applied':
                 # An older acknowledgement must never undo a rejection.

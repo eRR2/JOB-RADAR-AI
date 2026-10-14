@@ -206,6 +206,10 @@ class Store:
             merged.update({k: v for k, v in job.items() if v is not None})
             old_payload=json.loads(old[0]) if old else {}
             historical = match_history(db, merged)
+            from .availability import merge_states
+            history_payload=json.loads(historical['payload']) if historical else {}
+            states=merge_states(history_payload.get('source_availability'),old_payload.get('source_availability'),job.get('source_availability'))
+            if states:merged['source_availability']=states
             if old is None:
                 merged['previously_seen'] = bool(historical)
                 if historical:
@@ -220,7 +224,7 @@ class Store:
             changed=bool(old and any(merged.get(key)!=old_payload.get(key) for key in ('description','title','company','location','availability')))
             carried_status = historical['application_status'] if historical else 'none'
             mail_status = None
-            if old is None and carried_status in ('none','saved') and (not historical or historical['status_source']!='manual'):
+            if carried_status in ('none','saved') and (not historical or historical['status_source']!='manual'):
                 from .outlook_history import recorded_decision_for
                 mail_status = recorded_decision_for(db,merged)
                 if mail_status:
@@ -229,6 +233,8 @@ class Store:
                 VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
                 payload=excluded.payload,last_seen=excluded.last_seen''',
                 (job['id'], json.dumps(merged), timestamp, timestamp, carried_status))
+            if old is not None and mail_status:
+                db.execute("UPDATE jobs SET application_status=? WHERE id=? AND application_status IN ('none','saved')",(mail_status,job['id']))
             keep_history(db,merged,timestamp,status=mail_status,source='outlook_read_only' if mail_status else None)
             if changed:
                 db.execute('UPDATE market_evaluations SET content_stale=1 WHERE job_id=?',(job['id'],))

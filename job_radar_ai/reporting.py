@@ -1,8 +1,9 @@
 """Evidence-aware work status; no career scoring or invented assessments."""
+from .availability import closed_for_review
 
 
 def review_state(job, diagnostics=None):
-    if job.get('availability') == 'closed_banner_observed' or job.get('freshness', {}).get('status') == 'confirmed_closed':
+    if closed_for_review(job):
         return {'status': 'excluded', 'reason': 'confirmed_closed'}
     if job.get('application_status', 'none') not in ('none', 'saved'):
         return {'status': 'excluded', 'reason': 'application_recorded'}
@@ -13,7 +14,7 @@ def review_state(job, diagnostics=None):
     if job.get('preliminary'):
         return {'status': 'assessed', 'reason': 'source_based_assessment'}
     if job.get('shortlist_status') == 'low_relevance':
-        return {'status': 'not_selected', 'reason': 'triage_not_selected'}
+        return {'status': 'not_selected', 'reason': 'triage_not_selected' if job.get('triage_decision') else 'triage_reason_missing'}
     recorded = job.get('review_state') or (diagnostics or {}).get('review_states', {}).get(job['id'])
     if recorded:
         return recorded
@@ -43,7 +44,7 @@ def coverage(jobs, diagnostics=None):
     from .recommendations import verified_description,active
     for job in jobs:
         state = review_state(job, diagnostics)
-        if job.get('shortlist_status') != 'low_relevance':
+        if state['status'] != 'not_selected':
             counts['selected'] += 1
             counts[state['status']] += 1
             if state['status']=='assessed' and verified_description(job):counts['verified_assessed']+=1

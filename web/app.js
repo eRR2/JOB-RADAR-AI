@@ -15,14 +15,15 @@ const button=(text,action,kind='',disabled=false)=>el('button',{type:'button',cl
 const tag=(text,kind='')=>el('span',{class:'tag '+kind},text);
 const priority=job=>({exceptional:4,strong:3,consider:2,weak:1,unsuitable:0})[job.preliminary?.priority]||0;
 function verifiedSource(job){return ['public_verified','linkedin'].includes(job.description_source?.kind)&&String(job.description||'').length>=100;}
-function recommended(job){return verifiedSource(job)&&!!job.preliminary?.recommend&&!job.preliminary?.critical_gap&&job.evaluation_status!=='needs_verification'&&!job.preliminary_stale&&['none','saved'].includes(job.application_status||'none')&&job.availability!=='closed_banner_observed'&&job.freshness?.status!=='confirmed_closed';}
+function reviewClosed(job){return job.availability_review_closed??(job.availability==='closed_banner_observed'||job.freshness?.status==='confirmed_closed');}
+function recommended(job){return verifiedSource(job)&&!!job.preliminary?.recommend&&!job.preliminary?.critical_gap&&job.evaluation_status!=='needs_verification'&&!job.preliminary_stale&&['none','saved'].includes(job.application_status||'none')&&!reviewClosed(job);}
 function evidenceLabel(job){
   if(['public_verified','linkedin'].includes(job.description_source?.kind)&&job.description)return 'Full source description verified';
   if(job.partial_source_text)return 'Partial source text verified · full description unverified';
   if(job.source_observations?.length)return 'Preliminary · search snippet only';
   return 'Description unavailable';
 }
-function freshnessLabel(job){return job.freshness?.status==='confirmed_open'?'Publisher-confirmed open':job.availability==='closed_banner_observed'||job.freshness?.status==='confirmed_closed'?'Publisher-confirmed closed':'Güncellik doğrulanmadı';}
+function freshnessLabel(job){return reviewClosed(job)?'Publisher-confirmed closed':job.freshness?.status==='confirmed_open'?'Publisher-confirmed open':'Güncellik doğrulanmadı';}
 function toast(text,error=false){$('#toast').textContent=text;$('#toast').className=error?'error':'';$('#toast').hidden=false;setTimeout(()=>$('#toast').hidden=true,6000);}
 async function api(path,data){
   const response=await fetch(path,{method:data===undefined?'GET':'POST',headers:data===undefined?{}:{'Content-Type':'application/json','X-Radar-CSRF':state.csrf},body:data===undefined?undefined:JSON.stringify(data)});
@@ -34,7 +35,7 @@ function safeLink(url,text){try{const u=new URL(url);if(u.protocol==='https:'&&!
 const compact=(text,limit=45)=>String(text||'').split(/\s+/).slice(0,limit).join(' ');
 function review(job){
   if(job.review_state)return job.review_state;
-  if(job.availability==='closed_banner_observed'||job.freshness?.status==='confirmed_closed')return {status:'excluded',reason:'confirmed_closed'};
+  if(reviewClosed(job))return {status:'excluded',reason:'confirmed_closed'};
   if(job.evaluation_status==='needs_verification'||job.preliminary_stale)return {status:'needs_verification',reason:'evidence_validation'};
   if(job.preliminary)return {status:'assessed'};
   return {status:job.shortlist_status==='low_relevance'?'not_selected':'pending',reason:'not_started'};
@@ -46,9 +47,9 @@ function reviewCounts(){
 }
 function coverageText(){const c=reviewCounts();return c.selected+' review candidates · '+c.assessed+' assessed · '+c.pending+' pending · '+c.excluded+' excluded · '+c.needs_verification+' need evidence verification'+(c.verified_assessed===undefined?'':' · '+c.verified_assessed+' assessed against verified full text · '+c.source_pending+' awaiting full source');}
 function reviewReason(job){
-  return ({confirmed_closed:'Excluded from suitability review: source confirmed closed.',application_recorded:'Excluded: this exact position has an application decision.',identity_or_obsolete_review:'Identity or obsolete status requires review.',
+  return ({confirmed_closed:'Excluded from suitability review: source confirmed closed.',application_recorded:'Application recorded for this exact position; technical fit is a separate question.',identity_or_obsolete_review:'Identity or obsolete status requires review.',
     evaluation_timeout:'Evaluation time limit reached; suitability remains unassessed.',evaluation_budget:'Evaluation budget exhausted; suitability remains unassessed.',evaluation_error:'Evaluation failed; no completed assessment is available.',
-    evidence_validation:'Assessment evidence needs verification; recommendation withheld.',full_source_required:'Verified full duties and requirements are needed before a final assessment.',triage_not_selected:'Not selected by career relevance triage; no suitability assessment.',triage_not_reached:'Research stopped before relevance triage; suitability remains unassessed.',canceled:'Research was canceled before this assessment.',not_started:'Assessment not started; suitability is unverified.'})[review(job).reason]||'Suitability remains unverified.';
+    evidence_validation:'Assessment evidence needs verification; recommendation withheld.',full_source_required:'Verified full duties and requirements are needed before a final assessment.',triage_not_selected:'Not selected by career relevance triage; no suitability assessment.',triage_reason_missing:'Individual triage rationale was not recorded; suitability remains unverified.',triage_not_reached:'Research stopped before relevance triage; suitability remains unassessed.',canceled:'Research was canceled before this assessment.',not_started:'Assessment not started; suitability is unverified.'})[review(job).reason]||'Suitability remains unverified.';
 }
 function fieldLabel(job,field,fallback){const hint=job.inferred_fields?.[field];return job[field]|| (hint?hint.value+' (source title; unverified)':fallback);}
 function salaryLabel(job){
@@ -62,6 +63,11 @@ function assessmentSummary(job){
   return el('div',{},el('p',{class:'job-summary'},'Known fit: '+compact(p?.evidence?.[0]?.assessment||'Specific capability evidence not supplied.',30)),
     el('p',{class:'job-summary'},'Assessment: '+compact(p?.next_step,job.description?70:45)),
     !job.description||p?.gaps?.length?el('p',{class:'muted'},'Missing for full assessment: '+compact((p?.gaps||[]).slice(0,2).join('; ')||'Full responsibilities and requirements remain unverified.',40)):null);
+}
+function sourceAndTriage(job){
+  const d=job.triage_decision,notes=Object.values(job.source_availability||{});
+  return el('div',{},d?el('p',{class:'muted'},'Triage: '+compact(d.reason,30)+' · Transferable fit: '+compact(d.transferable_fit||'Not established',25)+' · Specialist gap: '+compact(d.specialist_gap||'Not established',25)+(d.evidence_issue?' · Evidence needs verification: '+d.evidence_issue:'')):null,
+    ...notes.map(n=>el('p',{class:'muted'},n.channel+': '+n.status+' · '+(n.access_status||'observed')+(n.http_status?' HTTP '+n.http_status:'')+' · '+n.provenance+' · '+(n.checked_at?'Checked '+n.checked_at:'Check time unknown')+(n.reported_at?' · Reported '+n.reported_at:'')+' · '+compact(n.quote,20),safeLink(n.url,' Source'))));
 }
 function statusPanel(){
   const run=state.runs[0],operation=state.operation;
@@ -150,7 +156,7 @@ function card(job){
       el('p',{class:'muted'},'Dutch ruling employer support: '+
         job.preliminary.ruling_employer_support+' · Personal eligibility: not assessed'+
         (job.preliminary.ruling_quote?' · Source: '+job.preliminary.ruling_quote:'')):null,
-    assessmentSummary(job),
+    sourceAndTriage(job),assessmentSummary(job),
     el('div',{class:'actions'},button('View opportunity',()=>detail(job)),safeLink(job.url,'Original posting'),status));
 }
 function detail(job){

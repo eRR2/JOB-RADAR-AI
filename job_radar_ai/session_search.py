@@ -21,7 +21,8 @@ from .linkedin import LinkedIn, SourceError
 from .access import linkedin_state
 from .contracts import validate
 from .reporting import review_state, coverage
-from .verification import triage_batches, ranked_candidates, assessment_batches
+from .verification import triage_batches, ranked_candidates, assessment_batches, triage_decisions
+from .availability import observation,merge_states
 
 PHASE_SECONDS = {'discovery':600,'enrichment':150,'evaluation':150}
 MAX_AI_CALLS = 16
@@ -47,6 +48,10 @@ Do not search with entire goal paragraphs or generic single-word titles.
 No private CV text, names, contacts or identifying history in public queries.
 Copy requisition_id only when an employer requisition is literally observed;
 do not substitute a LinkedIn listing ID for an employer requisition.'''
+RESEARCH += ''' Retain actually observed original employer posting URLs and alternate
+canonical job URLs in description_sources, with employer requisition when observed.
+A LinkedIn listing alone supplies no independent employer description access. Never
+guess job slugs, use homepages as full postings or invent replacement URLs.'''
 ENRICH = '''First apply a strict but fair relevance triage. Select potentially strong candidates worth enriching from this batch of actual
 observed source evidence and the actual CV/next-career direction. Prioritize demonstrated
 responsibilities, credible progression and leadership; do not choose title-only specialist
@@ -56,6 +61,12 @@ mismatches, but preserve credible stretch roles and cross-sector leadership.
 Select only evidence-backed credible next moves; do not fill a quota.
 Return exact supplied candidate_ids in priority order. This is relevance
 selection, NOT a final recommendation. No tools.'''
+ENRICH += ''' Return one decisions entry for EVERY supplied job. Preserve its individual
+reason and SHORT source_quote; separate transferable system/leadership capability
+from a demonstrated mandatory specialist gap. Missing duties or uncertain expertise
+must use needs_evidence, never low_relevance. Only an observed, quoted mismatch may
+use low_relevance. An application/rejection decision is workflow state, never evidence
+of technical irrelevance. candidate_ids orders candidates worth verifying.'''
 
 
 def initial_plan(profile,markets,brief=None):
@@ -143,6 +154,11 @@ class SessionSearch(Hunter):
         profile=self.store.get('profile');all_markets=profile['markets']
         markets=[m for m in all_markets if market_id=='all' or m['id']==market_id]
 
+        def source_note(job,url,status='unknown',quote='',http_status=None,provenance='transport',checked_at=None):
+            item=observation(job,url,status,quote,checked_at or now(),provenance,http_status)
+            job['source_availability']=merge_states(job.get('source_availability'),{item['url']:item})
+            self.store.upsert_job({'id':job['id'],'source_availability':job['source_availability']})
+
         def safe_text(value):
             text=str(value)
             # No prompts/source text in diagnostics. Mask contact-shaped query values.
@@ -165,8 +181,8 @@ class SessionSearch(Hunter):
             d['employer_requests']=[{**v,'endpoint':safe_url(v['endpoint']),'parameters':{k:[safe_text(x) for x in vals] for k,vals in v.get('parameters',{}).items()}} for v in getattr(fetcher,'diagnostics',[])]
             jobs=self.store.jobs();payload['job_ids']=[j['id'] for j in jobs]
             d['descriptions']={
-                'full':sum(bool(j.get('description')) for j in jobs),
-                'partial':sum(bool(j.get('partial_source_text')) and not j.get('description') for j in jobs),
+                'full':sum(verified_description(j) for j in jobs),
+                'partial':sum(bool(j.get('partial_source_text') or j.get('description')) and not verified_description(j) for j in jobs),
                 'snippet_only':sum(not j.get('description') and not j.get('partial_source_text') for j in jobs)}
             d['coverage']=coverage(jobs,d)
             d['counts']['evaluated']=d['coverage']['assessed']
@@ -401,17 +417,18 @@ class SessionSearch(Hunter):
                 selection=call('enrichment',ENRICH,
                                {'profile':private_profile(profile),'background':brief,'jobs':lean})
                 validate('enrichment',selection)
-                chosen=selection['candidate_ids'];by_id={j['id']:j for j in batch}
-                if len(set(chosen))!=len(chosen) or not set(chosen)<=set(by_id):raise ValueError('Enrichment selection identity mismatch.')
+                chosen,decisions=triage_decisions(selection,lean)
                 shortlisted.update(chosen)
                 for considered in batch:
                     self.store.upsert_job({'id':considered['id'],
-                        'shortlist_status':'selected' if considered['id'] in chosen else 'low_relevance',
+                        'triage_decision':{**decisions[considered['id']],'at':now()},
+                        'shortlist_status':'selected' if considered['id'] in chosen else 'low_relevance' if decisions[considered['id']]['action']=='low_relevance' else 'not_selected',
                         'shortlist_rank':chosen.index(considered['id'])*len(triage_groups)+batch_index if considered['id'] in chosen else None,
-                        'description_review':{'status':'pending','reason':'enrichment_budget'} if considered['id'] in chosen else {'status':'not_selected','reason':'triage_not_selected'}})
+                        'description_review':{'status':'pending','reason':'enrichment_budget'} if considered['id'] in chosen else {'status':'not_selected','reason':'triage_not_selected' if decisions[considered['id']]['action']=='low_relevance' else 'triage_reason_missing'}})
                 d.setdefault('triage',{'selected':0,'low_relevance':0})
                 d['triage']['selected']+=len(chosen)
-                d['triage']['low_relevance']+=len(batch)-len(chosen)
+                d['triage']['low_relevance']+=sum(item['action']=='low_relevance' for item in decisions.values())
+                d['triage']['reason_missing']=d['triage'].get('reason_missing',0)+sum(item['action']=='not_selected' for item in decisions.values())
                 progress('Shortlisted credible candidates · '+str(len(shortlisted)))
             by_id={j['id']:j for j in self.store.jobs()}
             for candidate in ranked_candidates([j for j in by_id.values() if j['id'] in shortlisted]):
@@ -443,19 +460,28 @@ class SessionSearch(Hunter):
                     try:full=recover(job,url,link['employer_url'],fetcher,all_markets);break
                     except RetrievalError as exc:
                         unsuccessful.add(normalized_url(url));self.store.upsert_job({'id':job_id,'description_status':exc.status})
-                        attempts.append({'url':safe_url(url),'status':exc.status,'reason':safe_text(str(exc))})
+                        source_note(job,url,http_status=exc.http_status)
+                        attempts.append({'url':safe_url(url),'status':exc.status,'http_status':exc.http_status,'checked_at':now(),'reason':safe_text(str(exc))})
                 if not full and job['id'].startswith('linkedin:') and profile.get('linkedin_consent') and linkedin_state(self.store)['state']=='available' and not linkedin.denied_in_run and linkedin.requests<budgets['requests'] and sum(r['operation']=='detail' for r in d['linkedin_direct'])<budgets['details'] and phase_end-time.monotonic()>30:
                     record={'country':d['country'],'operation':'detail','job_id':job['id'],'status':'running'};d['linkedin_direct'].append(record)
                     before_requests=linkedin.requests
                     try:
                         detail=linkedin.detail(job['source_id']);self.store.upsert_job({**detail,'description_status':'full','description_source':{'kind':'linkedin','url':job['url'],'at':now()},'description_review':{'status':'available','reason':'linkedin_detail','attempts':attempts}})
+                        source_note(job,job['url'],'closed' if detail.get('availability')=='closed_banner_observed' else 'unknown',
+                            'isActive: false (guest response)' if detail.get('availability')=='closed_banner_observed' else '',provenance='publisher_observed',checked_at=detail.get('description_obtained'))
                         record.update(status='received',http_status=200);progress('LinkedIn detail saved');continue
                     except (SourceError,ProviderError) as exc:
                         state=linkedin_state(self.store);record.update(status=state['state'] if state['state']!='available' else 'source_failed',http_status=state.get('http_status'),reason=safe_text(str(exc)))
                         attempts.append({'url':safe_url(job['url']),'status':record['status'],'reason':record['reason']})
                     finally:record.update(requests=linkedin.requests-before_requests,cache_hit=linkedin.last_cached)
+                elif not full and job['id'].startswith('linkedin:') and profile.get('linkedin_consent') and linkedin_state(self.store)['state']!='available':
+                    state=linkedin_state(self.store)
+                    source_note(job,job['url'],http_status=state.get('http_status'),provenance='access_policy')
+                    attempts.append({'url':safe_url(job['url']),'status':'blocked_shared_stop','http_status':state.get('http_status'),'checked_at':now(),'attempted':False,'reason':'Direct publisher access stopped; no detail request.'})
                 if full:
                     state=freshness(full)
+                    source_note(job,full['source_url'],'closed' if state['status']=='confirmed_closed' else 'open' if state['status']=='confirmed_open' else 'unknown',
+                        state['evidence'],provenance='publisher_observed',checked_at=full['evidence'].get('at'))
                     self.store.upsert_job({'id':job_id,'description':full['description'],'description_status':'public_verified','location':full.get('location') or job.get('location',''),'country':full.get('country') or job.get('country',''),
                         'requisition_id':full.get('requisition_id') or job.get('requisition_id',''),
                         'description_source':{'kind':'public_verified','url':full['source_url'],'sha256':full['evidence']['sha256'],'at':now()},'freshness':state,

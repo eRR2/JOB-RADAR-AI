@@ -46,6 +46,15 @@ Publication-title hints
 for employer, locality and advertised compensation are labeled unverified and never
 replace canonical identity facts. An advertised salary ceiling is not guaranteed pay.
 An empty local application status is unverified until supported by a recorded decision.
+Triage retains an individual rationale, transferable capability, specialist gap and
+literal source evidence for every current decision. Missing or title-only evidence
+requires verification, not a low-relevance verdict. Application state suppresses a
+duplicate application; it does not change technical suitability.
+Publication status is tracked per source with evidence and check/report times. A
+missing address or access restriction remains unknown; an observed alternate posting
+must still match the exact requisition. LinkedIn closure does not establish employer
+publication closure. Outlook matching can use bounded employer sender metadata and
+rechecks authorized retained evidence when an existing job gains its requisition.
 Dutch employer-ruling information is shown only for roles identified as Dutch.
 
 Every recommendation explains fit, gaps, technical versus disciplinary authority and

@@ -37,6 +37,9 @@ def vacancy_html(job,page):
         raise RetrievalError('unverified','A unique job description, exact title and matching canonical URL are required.')
     if not job.get('company') or not re.search(r'(?<!\w)'+re.escape(job['company'])+r'(?!\w)',plain(page['text']),re.I):
         raise RetrievalError('unverified','Employer is not established in the actual publisher page.')
+    requisition=job.get('requisition_id','')
+    if requisition and not re.search(r'(?<!\w)'+re.escape(requisition)+r'(?!\w)',plain(page['text']),re.I):
+        raise RetrievalError('unverified','Known requisition is not stated by the publisher page.')
     if not 100<=len(text)<=60000:raise RetrievalError('incomplete','Full job text is outside supported size bounds.')
     metadata=Metadata();metadata.feed(page['text'])
     location=next(iter(metadata.fields.get('location',[])),'').strip(', ')
@@ -81,6 +84,8 @@ def recover(job,url,employer_url,fetcher,markets):
     for option in options:
         try:
             if url==job['url'] and len(options)==1:
+                if job.get('requisition_id') and exact(job['requisition_id'])!=exact(option.get('requisition_id','')):
+                    raise RetrievalError('unverified','Original or redirected posting requisition conflicts with retained identity.')
                 if job.get('title') and exact(job['title'])!=exact(option['title']):raise RetrievalError('unverified','Original posting title changed.')
                 if job.get('company') and exact(job['company'])!=exact(option['company']):
                     actual=plain(option['evidence']['text'])

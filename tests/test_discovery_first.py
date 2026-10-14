@@ -78,12 +78,18 @@ class DiscoveryFirstTests(unittest.TestCase):
                 if kind=='session_strategy':
                     self.telemetry={}
                     return dict(strategy='Actual capabilities',role_families=['Systems ownership'],markets=[dict(market_id=m['id'],linkedin_queries=[dict(query='technical ownership',location=query_locations(m)[0],remote='any',reason='Evidence')],web_queries=['Employer careers '+m['country']]) for m in context['markets']])
-                if kind=='enrichment':return dict(candidate_ids=[j['id'] for j in context['jobs'] if j['id']=='linkedin:123456'],reason='Source responsibilities support actual capabilities')
+                if kind=='enrichment':
+                    decisions=[dict(job_id=j['id'],action='verify' if j['id']=='linkedin:123456' else 'low_relevance',
+                        basis='unknown' if j['id']=='linkedin:123456' else 'observed_mismatch',reason='Observed architecture ownership' if j['id']=='linkedin:123456' else 'Observed mandatory optics specialism differs from demonstrated architecture capability',
+                        transferable_fit='',specialist_gap='',missing_information=[],source_quote='' if j['id']=='linkedin:123456' else
+                        'Main responsibility: optical lens design requiring specialist optics experience.' if j['id']=='linkedin:123457' else 'Mandatory specialist optics experience.') for j in context['jobs']]
+                    return dict(candidate_ids=['linkedin:123456'],reason='Source responsibilities support actual capabilities',decisions=decisions)
                 return super().run(kind,task,context,**opts)
         def response(argv,**opts):
             if 'search' in argv:
                 location=argv[argv.index('--location')+1];germany='Germany' in location
-                return 0,json.dumps({'results':[dict(id='123456' if germany else '123458',title='Architecture Lead',company='Synthetic',location=location)]}),''
+                return 0,json.dumps({'results':[dict(id='123456' if germany else '123458',title='Architecture Lead',company='Synthetic',location=location,
+                    **({} if germany else {'description':'Mandatory specialist optics experience.'}))]}),''
             self.assertIn('123456',argv)
             return 0,json.dumps(dict(id='123456',title='Architecture Lead',company='Synthetic',location='Berlin, Germany',description='Own electrical system architecture. '+('Actual responsibilities and ownership. '*8))),''
         with patch('job_radar_ai.linkedin.executable',return_value=['bun.exe']),patch('job_radar_ai.linkedin.bounded_process',side_effect=response) as transport:

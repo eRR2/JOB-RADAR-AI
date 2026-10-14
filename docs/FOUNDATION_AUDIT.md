@@ -303,3 +303,52 @@ The remaining execution condition is explicit: this checkout's first-launch fixt
 requires its real dashboard to be closed, because the shared update lock intentionally
 prevents simultaneous servers against the same code tree even with different databases.
 This pass does not establish live provider/source quality or stable-release readiness.
+
+## Individual triage and source-scoped evidence follow-up (15 October 2026)
+
+Retained diagnostics exposed three independent defects. The enrichment contract
+returned selected IDs and a shared reason, so it could not preserve an individual
+exclusion rationale. The Outlook matcher considered employer text only in subject
+and preview; an acknowledgement with the exact title/requisition but employer name
+in sender metadata could not match. Existing jobs did not reconsider preimported
+evidence after learning their requisition. In addition, original-URL recovery could
+accept a redirected same-title posting with a different known requisition.
+
+Current enrichment requests require strict nested per-job decisions while saved
+legacy envelopes remain valid. Reasons separate transferable capability, specialist
+gaps and missing information. Missing, unsupported or metadata-only quotations cannot
+justify low relevance; those records require evidence. The original proposed action
+and the evidence gate are retained. One unsupported decision does not discard others.
+Legacy exclusions expose the unavailable individual rationale rather than inventing it.
+
+Read-only mail evidence includes only bounded sender display metadata, subject and
+preview, never full body or email credentials. Company corroboration and unique exact
+identity remain required. Existing-job requisition updates reconsider retained evidence;
+explicit manual corrections survive later imports. Applied status changes workflow
+eligibility without reclassifying technical fit. Report coverage also separates that
+exclusion from a prior low-relevance label.
+
+Publication facts now retain their source URL/channel, quote, provenance, check time
+and report time. An unknown screenshot check time stays null. A later access failure
+does not erase prior publication evidence. HTTP 404/410 indicates missing-or-moved
+address uncertainty; 429 remains an access stop. An actually observed alternative
+can be recovered only through the existing policy and identity gates. Same-title
+redirects with a different known requisition are rejected; matching requisitions pass.
+Source coverage counts full verified text separately from partial evidence.
+
+Real mailbox matching was replayed in a private database copy. Only two explicitly
+approved user-record corrections were subsequently applied atomically with a backup;
+technical assessments, CV/preferences and unrelated records remained unchanged.
+The supplied LinkedIn closure is channel-scoped. The corresponding exact employer
+publication remains unverified because its original URL/requisition was not established.
+No new AI research run or direct LinkedIn request was started. Targeted read-only web
+checks for the requested employer verification did not establish a definitive result;
+an independent empty reference lookup was not interpreted as employer closure.
+
+Validation covers the actual coordinator, nested provider schema, missing/title-only
+triage evidence, sender corroboration, late identity, manual correction, application
+coverage, moved URLs and channel evidence. Tests use synthetic records; real evidence
+and authorized-change receipts stay private.
+Final offline checks: **304 Python tests and 16 DOM tests passed**, zero skips;
+compilation, JavaScript syntax and whitespace checks passed. The dashboard was closed
+after prior notice for the unchanged first-launch fixture and remains closed.

@@ -28,6 +28,7 @@ from .completion import CompletionResolver
 from .session_search import SessionSearch
 from .listing_metadata import source_title_fields
 from .reporting import review_state, coverage
+from .availability import closed_for_review
 
 CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 
@@ -114,6 +115,7 @@ class Application:
             job['location_status']=location_status(job,profile,market) if market else 'location_unknown'
             review_market=next((m for m in markets if m['id']==job['geography']['country_id']),None)
             job['review_state']=review_state({**job,'review_country':review_market['country'] if review_market else 'Location unverified'},diagnostics)
+            job['availability_review_closed']=closed_for_review(job)
             job.update(source_title_fields(job))
             for key,item in job['market_evaluations'].items():
                 market=next((m for m in markets if m['id']==key),None)
