@@ -1,29 +1,81 @@
 """Subscription CLI adapters; stdin prompts, argv commands, restricted tools."""
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 import threading
 import time
 from pathlib import Path
-from .contracts import SCHEMAS, validate
+from .contracts import SCHEMAS, provider_schema, validate
 
 
 class ProviderError(RuntimeError):
-    def __init__(self,message,category='execution_error'):
+    def __init__(self,message,category='execution_error',exit_code=None,diagnostics=None):
         super().__init__(message);self.category=category
+        self.exit_code=exit_code
+        self.diagnostics=diagnostics or {}
 
 
-def execution_error(output):
-    text=output.casefold()
+def execution_error(output, exit_code=None):
+    # Never echo arbitrary CLI prose: it can contain the prompt, CV or secrets.
+    # Codex JSONL includes reasoning/agent output; only error events are relevant.
+    errors=[]
+    for line in output.splitlines():
+        try:
+            event=json.loads(line)
+        except ValueError:
+            errors.append(line)
+            continue
+        if not isinstance(event,dict):continue
+        if event.get('type') in ('error','turn.failed') or event.get('is_error') or ('error' in event and 'type' not in event):
+            errors.append(json.dumps(event.get('error',event.get('message',event.get('result','')))))
+    text='\n'.join(errors).casefold()
+    diagnostics={}
+    if exit_code is not None:diagnostics['exit_code']=exit_code
+    status=re.search(r'\b(?:http(?: status)?|status(?: code)?)\s*[:=]?\s*([45]\d{2})\b',text)
+    if status:diagnostics['http_status']=int(status[1])
+    for code in ('invalid_json_schema','invalid_request_error','unsupported_model','insufficient_quota',
+                 'rate_limit_exceeded','context_length_exceeded','invalid_api_key'):
+        if re.search(r'\b'+code+r'\b',text):
+            diagnostics['error_code']=code
+            break
+    schema_error='invalid_json_schema' in text or 'invalid schema' in text
+    if schema_error:
+        # Only repository-defined field names and schema keywords may escape.
+        fields=set()
+        def names(node):
+            if isinstance(node,dict):
+                fields.update(node.get('properties',{}))
+                for value in node.values():names(value)
+            elif isinstance(node,list):
+                for value in node:names(value)
+        names(SCHEMAS)
+        path=re.search(r'in context\s*=\s*\(([^)\n]{1,500})\)',text)
+        if path and re.fullmatch(r"[\s,'a-z_0-9]+",path[1]):
+            parts=re.findall(r"'([a-z_0-9]+)'",path[1])
+            if parts and all(part in fields | {'properties','items','$defs','anyof'} for part in parts):
+                diagnostics['schema_path']='.'.join(parts)
+        missing=re.search(r"missing\s+'([a-z_0-9]+)'",text)
+        if missing and missing[1] in fields:diagnostics['missing_required']=missing[1]
+    category='execution_error'
+    message='AI provider execution failed. Check CLI installation, authentication and connectivity; retained vacancies remain available.'
     if any(x in text for x in ('usage limit','subscription limit','quota exceeded','insufficient_quota')):
-        return ProviderError('Codex subscription usage limit reached. Wait for the subscription reset; observations are retained. No retry or API fallback.','subscription_usage_limit')
-    if ('model' in text and any(x in text for x in ('not supported','not found','does not exist','incompatible','access','unavailable'))) or 'unsupported_model' in text:
-        return ProviderError('Selected model is unavailable, incompatible or not permitted for this account. Check the CLI model selection.','model_access')
-    if 'rate limit' in text or 'rate_limit' in text:
-        return ProviderError('AI provider rate limit reached; this is separate from LinkedIn access. No automatic retry.','provider_rate_limit')
-    return ProviderError('AI provider execution failed. Check CLI installation, authentication and connectivity; retained vacancies remain available.','execution_error')
+        category='subscription_usage_limit'
+        message='Codex subscription usage limit reached. Wait for the subscription reset; observations are retained. No retry or API fallback.'
+    elif schema_error:
+        message='Invalid Structured Outputs schema; provider request refused. No automatic retry; retained vacancies remain available.'
+    elif ('model' in text and any(x in text for x in ('not supported','not found','does not exist','incompatible','access','unavailable'))) or 'unsupported_model' in text:
+        category='model_access'
+        message='Selected model is unavailable, incompatible or not permitted for this account. Check the CLI model selection.'
+    elif 'rate limit' in text or 'rate_limit' in text:
+        category='provider_rate_limit'
+        message='AI provider rate limit reached; this is separate from LinkedIn access. No automatic retry.'
+    details=[f'exit code {exit_code}'] if exit_code is not None else []
+    details += [f'{key}={value}' for key,value in diagnostics.items() if key!='exit_code']
+    if details:message+=' ('+'; '.join(details)+')'
+    return ProviderError(message,category,exit_code,diagnostics)
 
 
 def executable(name):
@@ -260,8 +312,9 @@ class Provider:
         with tempfile.TemporaryDirectory(prefix='call-', dir=self.private_root) as directory:
             directory = Path(directory)
             schema_path = directory / 'schema.json'
-            schema_path.write_text(json.dumps(SCHEMAS[kind]), encoding='utf-8')
-            command = self.command(binary, schema_path, research, SCHEMAS[kind])
+            schema = provider_schema(kind)
+            schema_path.write_text(json.dumps(schema), encoding='utf-8')
+            command = self.command(binary, schema_path, research, schema)
             if self.name == 'codex' and kind == 'priority_v52':
                 command[-1:-1] = ['-c', 'model_reasoning_effort="low"']
             self.telemetry = telemetry
@@ -272,7 +325,7 @@ class Provider:
             if forbidden.is_set():
                 raise ProviderError('Provider attempted a tool outside the permitted research contract; result refused.')
             if code != 0:
-                raise execution_error(error+'\n'+output)
+                raise execution_error(error+'\n'+output, exit_code=code)
             if self.name == 'codex':
                 result_path = directory / 'result.json'
                 if not result_path.is_file():

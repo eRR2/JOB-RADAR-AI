@@ -1,4 +1,5 @@
 """One strict structured-result contract for both CLI providers."""
+import copy
 import jsonschema
 
 WEIGHTS = ['progression', 'technical', 'salary', 'flexibility', 'company', 'location', 'learning']
@@ -61,6 +62,30 @@ def validate(kind, value):
     except (jsonschema.ValidationError, TypeError) as exc:
         raise ValueError('AI returned invalid structured output; it was not applied.') from exc
     return value
+
+
+def provider_schema(kind):
+    """Strict wire contract; keep saved-record validation backward compatible.
+
+    Every object, including array items, must require every declared property.
+    Existing strings can use empty text for absent evidence; enums already offer
+    unknown/unverified states. No evidence is invented to fill these fields.
+    """
+    schema = copy.deepcopy(SCHEMAS[kind])
+
+    def strict(node):
+        if isinstance(node, dict):
+            if node.get('type') == 'object':
+                node['required'] = list(node['properties'])
+                node['additionalProperties'] = False
+            for value in node.values():
+                strict(value)
+        elif isinstance(node, list):
+            for value in node:
+                strict(value)
+
+    strict(schema)
+    return schema
 
 # Additional findings are optional for backward compatibility with saved decisions.
 # Missing terms must be unknown, never inferred from the employer's reputation.

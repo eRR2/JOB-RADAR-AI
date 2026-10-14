@@ -103,8 +103,9 @@ checks successful because the current environment cannot satisfy prerequisites.
    this action removes every private backup. Correct that lifecycle in a separate
    confirmed deletion-path change with route regressions before a stable release.
 5. **Source breadth and budget:** at most two indexed passes per market and 16 AI calls
-   keep research bounded, but do not prove comprehensive employer coverage. Optional
-   schema fields may be omitted by a provider. Salary/authority/ruling completeness and
+   keep research bounded, but do not prove comprehensive employer coverage. Provider
+   schema fields are required; legacy saved-record validation permits omitted additions.
+   Salary/authority/ruling completeness and
    domain-fit quality need a later explicitly authorized live acceptance run.
 6. **Process trees and alternate provider:** the Windows fallback terminates the owned
    child when taskkill is denied; it does not prove every descendant process is contained.
@@ -117,3 +118,42 @@ checks successful because the current environment cannot satisfy prerequisites.
 
 No recommendation is made to merge main, publish a stable release or start live
 research until the applicable gates are addressed and the owner explicitly requests it.
+
+## Provider schema diagnosis (14 October 2026, local follow-up)
+
+Baseline: `codex/weekly-research-rebuild`, `2b0c3f7`. The running VS Code-launched
+application's PATH selects the npm package's native Codex executable, version
+**0.161.0**. `login status` reports ChatGPT subscription authentication; `exec --help`
+includes the adapter's options. The agent terminal's PATH selects a different bundled
+CLI, so that terminal alone would not establish the application's selection.
+
+The actual outbound schemas violated strict Structured Outputs: `research_v5` job
+items omitted `requisition_id` from `required`; `priority_v52` assessment items omitted
+eight added findings. Offline request-boundary regressions failed on both providers
+before correction. OpenAI's [Structured Outputs contract](https://developers.openai.com/api/docs/guides/structured-outputs)
+requires every object property in `required`, including nested array items, and
+`additionalProperties: false`.
+
+`provider_schema()` now builds a separate strict copy for both CLI requests. Local
+validation retains optional additions for old records, all original types/limits and
+source quotation checks. Missing evidence remains empty/unknown/unverified, rather
+than invented. No database migration or user-data update is needed.
+
+`execution_error()` now preserves the exit code and allowlisted HTTP/error codes,
+schema paths and missing contract field names. It consumes error events from JSONL
+without treating model messages as errors. It never returns or logs raw CLI output,
+CVs, prompts, contacts or credentials. The existing fatal execution-error category
+is preserved so schema rejection does not start another market's provider call.
+
+No live inference or publisher requests were made. The earlier failure's raw
+stderr/stdout was discarded by the old adapter and cannot be reconstructed from its
+generic message. HTTP 400/schema-error fixtures are synthetic; the schema defect is
+verified offline, while a live end-to-end success is not claimed.
+
+The full Python run executed **259 tests: 253 passed, 1 failure, 5 errors**, no skips.
+The five legacy catch-up errors reproduce with original HEAD provider/contract
+modules loaded in memory. The launcher fixture fails because the already-running
+workspace holds its update lock, as confirmed by that synthetic launch's stderr.
+No locks were bypassed or existing dashboard stopped. Final focused verification
+passed **89 tests**, including seven new provider regressions covering every outbound
+nested schema for both CLIs, safe error diagnostics and legacy compatibility.
