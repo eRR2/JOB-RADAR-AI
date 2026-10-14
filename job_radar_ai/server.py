@@ -113,7 +113,9 @@ class Application:
                 item['assessment_stale']=bool(item['content_stale'] or not market or item['evaluation'].get('profile_signature')!=profile_signature(market_profile(profile,market,self.store)))
             job['assessment_stale'] = bool(job['evaluation'] and (markets or job['evaluation'].get('profile_signature')!=profile_signature({**(profile or {}),'_preference_revision':self.store.preference_revision()})))
         market_state={m['id']:{'learned':self.store.get('learned:'+m['id'],[]),'learning_explanation':self.store.get('learning_explanation:'+m['id'],''), 'revision':self.store.preference_revision(market_id=m['id'])} for m in markets}
-        return {'csrf': self.csrf, 'profile': profile, 'jobs': jobs, 'runs': self.store.runs(),
+        return {'csrf': self.csrf, 'profile': profile, 'jobs': jobs,
+                'previous_opportunities': self.store.historical_opportunities(8) if self.simple else [],
+                'runs': self.store.runs(),
                 'providers': self.providers(), 'cv': {'text':self.store.get('cv_text',''), 'filename':self.store.get('cv_filename')},
                 'proposed_profile': self.store.get('proposed_profile'), 'proposed_intent':self.store.get('proposed_intent'),
                 'intent_review_required':bool(profile and not profile.get('intent_confirmed')), 'learned': self.store.get('learned', []),
@@ -275,7 +277,7 @@ def make_server(root, database, port=8767, skill_mode=False):
                 self.response(500, {'error':{'message':'Local operation failed; private state preserved. Check runtime installation.'}})
 
         def mutate(self, path, data):
-            if app.simple and path in ('/api/resolve-description','/api/complete-descriptions','/api/supplied-description','/api/reevaluate','/api/reprioritize','/api/application','/api/obsolete','/api/budgets','/api/source-reset','/api/intent-analysis','/api/intent-accept','/api/schedule'):
+            if app.simple and path in ('/api/resolve-description','/api/complete-descriptions','/api/supplied-description','/api/reevaluate','/api/reprioritize','/api/obsolete','/api/budgets','/api/source-reset','/api/intent-analysis','/api/intent-accept','/api/schedule'):
                 raise ValueError('This control was removed. Start a fresh Search with AI.')
             search_active=any(run['status']=='running' for run in app.store.runs())
             operation_active=bool(app.operation and app.operation['status']=='running')
@@ -516,6 +518,10 @@ def make_server(root, database, port=8767, skill_mode=False):
                     raise ValueError('Wait for the current AI operation first.')
                 return {'run_id':app.hunter.review(data['job_id'],data.get('market_id'))}
             if path == '/api/application':
+                if search_active or operation_active:
+                    raise ValueError('Finish current research before updating application history.')
+                if not isinstance(data.get('job_id'),str) or data.get('status') not in ('none','saved','applied','rejected','interview','offer','dismissed'):
+                    raise ValueError('Select a vacancy and a valid application status.')
                 app.store.application(data['job_id'],data['status'])
                 return {'saved':True}
             if path == '/api/feedback':
