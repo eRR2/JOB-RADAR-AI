@@ -68,6 +68,9 @@ def prepare(item, job, profile, feedback):
             raise ValueError('Career assessment source quote is not observed evidence.')
         if not exact_quote(quote['cv_quote'],profile.get('cv_text', '')):
             raise ValueError('Career assessment CV quote is not verbatim evidence.')
+    for quote_field in ('salary_evidence','hours_evidence'):
+        if item.get(quote_field) and not exact_quote(item[quote_field],evidence_text(job)):
+            item = {**item,quote_field:''}
     if item.get('ruling_employer_support') == 'stated':
         source = evidence_text(job).casefold()
         if 'ruling' not in source and '30%' not in source and '30 percent' not in source:
@@ -80,7 +83,10 @@ def prepare(item, job, profile, feedback):
     if profile.get('market'):
         from .geography import location_status
         if location_status(job,profile,profile['market']) == 'outside_preferred':
-            result['recommend'] = False
+            # Location is a preference/trade-off, not an automatic disqualification.
+            result['location_tradeoff'] = True
+            note = 'Outside preferred location; confirm remote eligibility or relocation.'
+            result['tradeoffs'] = ' '.join(filter(None,[result.get('tradeoffs',''),note]))
     return result
 
 
