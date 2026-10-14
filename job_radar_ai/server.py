@@ -517,6 +517,18 @@ def make_server(root, database, port=8767, skill_mode=False):
                 if app.operation and app.operation['status']=='running':
                     raise ValueError('Wait for the current AI operation first.')
                 return {'run_id':app.hunter.review(data['job_id'],data.get('market_id'))}
+            if path == '/api/outlook-history-import' and app.simple:
+                if search_active or operation_active:
+                    raise ValueError('Finish current research before importing application records.')
+                from .outlook_history import match_outlook_messages
+                messages=data.get('messages')
+                if not isinstance(messages,list) or len(messages)>500:
+                    raise ValueError('Use a read-only Outlook Job Radar message export.')
+                if any(not isinstance(m,dict) or
+                       sum(len(str(m.get(k,''))) for k in ('subject','bodyPreview','body_preview'))>6500
+                       for m in messages):
+                    raise ValueError('Invalid or excessively large Outlook message record.')
+                return match_outlook_messages(app.store,messages,folder_name=data.get('folder','Job Radar'))
             if path == '/api/application':
                 if search_active or operation_active:
                     raise ValueError('Finish current research before updating application history.')
