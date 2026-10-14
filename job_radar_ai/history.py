@@ -79,6 +79,12 @@ def create_history_table(db):
         application_status TEXT NOT NULL DEFAULT 'none',
         status_source TEXT NOT NULL DEFAULT 'unknown'
     )''')
+    db.execute('''CREATE TABLE IF NOT EXISTS outlook_evidence (
+        evidence_id TEXT PRIMARY KEY,
+        payload TEXT NOT NULL,
+        decision TEXT NOT NULL,
+        received_at TEXT NOT NULL
+    )''')
 
 
 def match_history(db, job):
