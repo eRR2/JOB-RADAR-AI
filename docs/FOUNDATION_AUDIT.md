@@ -273,3 +273,33 @@ The six previously recorded catch-up/launcher failures remain open.
 Full offline verification ran **289 Python tests: 283 passed, one failure and five
 errors**, with no skips. The failing test names and causes are unchanged. Compilation
 and whitespace checks passed; no live AI or publisher request was performed.
+
+## Remaining six test failures investigated
+
+All six previous outcomes were reproduced or verified against their execution
+conditions, without skipping tests or reducing assertions:
+
+| Previous outcome | Proven cause and resolution |
+| --- | --- |
+| Four `test_catchup` errors | Fixtures opened the checkout's 5.3 application but expected V2 catch-up. A temporary root with explicit V2 version now exercises the original reminder, persistence, duplicate-action and failed-start assertions. Current-preview tests separately verify catch-up and automatic scheduler are disabled in both normal and skill modes. |
+| `test_markets` catch-up error | Production `Hunter.start(market_id='all')` accepts a market, but the mock accepted zero arguments. The mock now accepts, asserts and forwards `all`; both country results still belong to one persistent run, and duplicate execution remains refused. |
+| First-launch fixture failure | The actual dashboard held the checkout-wide update lock. After notifying the owner, the idle dashboard was closed through the guarded endpoint. The unchanged launcher test then passed with a temporary empty database, including independent process launch, second-launch workspace reuse and close cleanup. The workspace lock was retained. |
+
+The investigation also exposed a real current-preview entry-point defect: although
+the application disabled scheduling, `__main__ --scheduled` could instantiate the
+older `ResearchHunter` directly. A synthetic regression failed before correction.
+The 5.3 CLI now rejects scheduled execution before process locks, storage recovery,
+schedule consumption or provider construction. Manual searches and legacy scheduled
+execution retain their existing paths; the legacy cancellation/lock-release test passes.
+
+Full offline validation: **291 Python tests passed, zero failures/errors/skips**;
+**14 DOM tests passed**. Compilation and whitespace checks passed. The six earlier
+test outcomes are resolved or explained by their verified execution conditions, with
+their original coverage retained. No live research, API fallback or user-data mutation
+was performed. The user database's complete table-content digest and row counts were
+identical before shutdown and after the full suite. The dashboard remains closed.
+
+The remaining execution condition is explicit: this checkout's first-launch fixture
+requires its real dashboard to be closed, because the shared update lock intentionally
+prevents simultaneous servers against the same code tree even with different databases.
+This pass does not establish live provider/source quality or stable-release readiness.

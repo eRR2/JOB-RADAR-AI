@@ -39,6 +39,9 @@ discovery covers each selected market once, then compact relevance triage orders
 verification before bounded assessment calls of at most two complete descriptions.
 Broader discovery avenues are recorded as deferred, not exhausted. Missing source text
 remains pending; budgets and provider failures never imply completed assessment.
+The 5.3 preview also refuses the `--scheduled` CLI entry before opening storage or
+providers. Searches require an explicit dashboard action; legacy catch-up remains
+tested separately against its V2 contract.
 Publication-title hints
 for employer, locality and advertised compensation are labeled unverified and never
 replace canonical identity facts. An advertised salary ceiling is not guaranteed pay.

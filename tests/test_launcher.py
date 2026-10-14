@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from unittest.mock import patch,Mock
@@ -6,6 +7,24 @@ from job_radar_ai.__main__ import main,ProcessLock
 
 
 class LauncherTests(unittest.TestCase):
+    def test_current_preview_rejects_scheduled_entry_before_storage_or_provider(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            (root/'version.json').write_text(json.dumps({'version':'5.3.0-preview'}))
+            store=Mock();store.get.side_effect=lambda key: {'consent':True,'secondary':True} if key=='profile' else None
+            with patch('sys.argv',['job-radar','--root',directory,'--scheduled']),\
+                 patch('job_radar_ai.__main__.Store',return_value=store) as storage,\
+                 patch('job_radar_ai.__main__.ProcessLock') as lock,\
+                 patch('job_radar_ai.__main__.ResearchHunter') as research,\
+                 patch('job_radar_ai.__main__.Hunter') as legacy,\
+                 patch('job_radar_ai.__main__.due_slot',return_value='synthetic-due'):
+                with self.assertRaises(SystemExit) as rejected:
+                    main()
+                self.assertEqual(rejected.exception.code,2)
+                storage.assert_not_called();lock.assert_not_called()
+                research.assert_not_called();legacy.assert_not_called()
+                self.assertFalse((root/'.private').exists())
+
     def test_real_process_lock_refuses_second_instance_and_can_be_reopened(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'state.lock'

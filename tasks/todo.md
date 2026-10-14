@@ -119,10 +119,11 @@ Historical tasks above do not override the current contract.
 - [x] Expose partial coverage, source gaps, unverified title terms and exact local application status.
 - [x] Replay saved publisher bytes privately and add synthetic scheduling/source/report regressions.
 - [x] Reproduce cross-country priority leapfrogging and batch only contiguous equal market/country-confidence scopes; preserve scoped context and timeout outcomes.
-- [ ] `test_catchup.test_failed_start_does_not_consume_slot_and_skill_scheduler_never_runs`: simple-preview catch-up returns None.
-- [ ] `test_catchup.test_reminder_survives_restart_without_consuming_due_search`: same catch-up contract mismatch.
-- [ ] `test_catchup.test_run_now_records_one_attempt_and_duplicate_click_cannot_start_another`: same catch-up contract mismatch.
-- [ ] `test_catchup.test_skip_persists_and_stale_or_duplicate_actions_are_refused`: same catch-up contract mismatch.
-- [ ] `test_markets.test_catchup_all_outcomes_are_one_persistent_run`: legacy start mock accepts no market argument.
-- [ ] `test_skill_launch.test_first_launch_returns_without_inheriting_agent_pipes_and_reuses_workspace`: active workspace update lock blocks launcher fixture; do not bypass lock.
+- [x] `test_catchup.test_failed_start_does_not_consume_slot_and_skill_scheduler_never_runs`: explicit V2 fixture passes; current-preview scheduling refusal has separate coverage.
+- [x] `test_catchup.test_reminder_survives_restart_without_consuming_due_search`: explicit V2 fixture preserves and verifies reminder persistence.
+- [x] `test_catchup.test_run_now_records_one_attempt_and_duplicate_click_cannot_start_another`: V2 fixture passes with stronger exact `all` argument assertion.
+- [x] `test_catchup.test_skip_persists_and_stale_or_duplicate_actions_are_refused`: V2 fixture passes with all original assertions retained.
+- [x] `test_markets.test_catchup_all_outcomes_are_one_persistent_run`: mock accepts, asserts and forwards `all`; both country results and duplicate refusal pass.
+- [x] `test_skill_launch.test_first_launch_returns_without_inheriting_agent_pipes_and_reuses_workspace`: unchanged test passes with dashboard closed; shared workspace lock remains required.
+- [x] Reject current-preview `--scheduled` entry before opening storage/providers; synthetic regression failed before fix and passes afterward.
 

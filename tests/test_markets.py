@@ -223,12 +223,14 @@ class MarketTests(unittest.TestCase):
         self.store.set('profile',self.profile)
         app=Application(self.root,self.store.path,skill_mode=True)
         slot=app.catchup()['slot']
-        def start():
-            run,calls,source=self.run_search()
+        def start(market_id):
+            self.assertEqual(market_id,'all')
+            run,calls,source=self.run_search(selected=market_id)
             return run['id']
-        with patch.object(app.hunter,'start',side_effect=start):
+        with patch.object(app.hunter,'start',side_effect=start) as launch:
             app.catchup_action({'slot':slot,'action':'run'})
             with self.assertRaises(ValueError):app.catchup_action({'slot':slot,'action':'run'})
+            launch.assert_called_once_with('all')
         self.assertEqual(len(self.store.runs()),1)
         self.assertEqual(set(self.store.runs()[0]['payload']['markets']),{'DE','NL'})
         self.assertIsNone(Application(self.root,self.store.path,skill_mode=True).catchup())

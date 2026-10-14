@@ -49,6 +49,8 @@ def main():
     if args.skill_mode and args.scheduled:
         parser.error('Skill mode cannot run OS scheduled searches.')
     root=args.root.resolve()
+    if args.scheduled and (root/'version.json').is_file() and version(root).get('version','').startswith('5.3'):
+        parser.error('Scheduled searches are disabled in the current weekly preview. Start an explicit search from the dashboard.')
     database=(root/args.database).resolve()
     if not database.is_relative_to(root/'.private') or database.suffix!='.sqlite3':
         parser.error('Database must be a .sqlite3 file below this project’s .private directory.')
