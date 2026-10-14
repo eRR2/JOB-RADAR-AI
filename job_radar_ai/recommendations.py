@@ -32,7 +32,17 @@ def active(job):
 
 
 def evidence_text(job):
-    return job.get('description') or '\n'.join(o.get('text', '') for o in job.get('source_observations', []))
+    # A source quote can be taken from either a publisher description or its
+    # separately observed snippet. Both have immutable provenance.
+    return '\n'.join(filter(None, [job.get('description', '')] +
+        [o.get('text', '') for o in job.get('source_observations', [])]))
+
+
+def exact_quote(quote, source):
+    """Accept only literal text, with insignificant whitespace normalized."""
+    import re
+    clean = lambda v: ' '.join(re.split(r'\s+', v.strip()))
+    return bool(quote.strip()) and clean(quote) in clean(source)
 
 
 def signature(job, profile, feedback):
@@ -46,9 +56,9 @@ def prepare(item, job, profile, feedback):
     if item['job_id'] != job['id']:
         raise ValueError('Career assessment identity mismatch.')
     for quote in item['evidence']:
-        if not quote['job_quote'].strip() or quote['job_quote'] not in evidence_text(job):
+        if not exact_quote(quote['job_quote'],evidence_text(job)):
             raise ValueError('Career assessment source quote is not observed evidence.')
-        if not quote['cv_quote'].strip() or quote['cv_quote'] not in profile.get('cv_text', ''):
+        if not exact_quote(quote['cv_quote'],profile.get('cv_text', '')):
             raise ValueError('Career assessment CV quote is not verbatim evidence.')
     result = {**item, 'policy': POLICY, 'at': now(), 'signature': signature(job, profile, feedback), 'market_id': profile.get('market', {}).get('id') if feedback else None}
     result['recommend'] = bool(item['recommend'] and item['priority'] in ('exceptional', 'strong')
@@ -63,7 +73,13 @@ def prepare(item, job, profile, feedback):
 
 
 def context(job):
-    return {**source_context(job), 'source_observations': job.get('source_observations', []),
+    # Send only bounded source evidence to avoid reprocessing entire indexed
+    # search pages in every evaluation call. Exact quotes remain verifiable
+    # against the full stored observations.
+    return {**source_context(job),
+            'description': (job.get('description') or '')[:9000],
+            'source_observations': [{'url':o.get('url',''),'text':o.get('text','')[:1600]}
+                                    for o in job.get('source_observations',[])[:2]],
             'evidence_confidence': 'full_source' if job.get('description_source', {}).get('kind') in ('public_verified', 'linkedin') and job.get('description') else 'user_supplied' if job.get('description') else 'partial_source' if job.get('partial_source_text') else 'snippet',
             'application_status': job.get('application_status', 'none'), 'obsolete': bool(job.get('obsolete'))}
 
@@ -75,20 +91,42 @@ def private_profile(profile):
 
 
 def assess(ai, store, jobs, profile, feedback, **kwargs):
-    """Bounded response envelopes, not a total job quota. Persist each valid batch."""
-    pending = [j for j in jobs if active(j) and j.get('preliminary', {}).get('signature') != signature(j, profile, feedback)]
-    calls = 0
-    for start in range(0, len(pending), 20):
-        batch = pending[start:start + 20]
-        result = ai.run('priority_v52', TASK, {'profile': private_profile(profile), 'feedback': feedback, 'jobs': [context(j) for j in batch]}, **kwargs)
-        calls += 1
-        by_id = {v['job_id']: v for v in result['assessments']}
-        if len(by_id) != len(result['assessments']) or set(by_id) != {j['id'] for j in batch}:
-            raise ValueError('Career assessment must cover each exact vacancy identity once.')
-        prepared = [(j, prepare(by_id[j['id']], j, profile, feedback)) for j in batch]
-        for job, value in prepared:
-            update = {'id': job['id'], 'preliminary': value}
+    """Validate and persist EACH decision, never losing an entire AI batch."""
+    pending = [j for j in jobs if active(j) and
+               j.get('preliminary',{}).get('signature') != signature(j,profile,feedback)]
+    calls=0
+    valid=0
+    rejected=0
+    for start in range(0,len(pending),8):
+        batch=pending[start:start+8]
+        result=ai.run('priority_v52',TASK,{'profile':private_profile(profile),
+                      'feedback':feedback,'jobs':[context(j) for j in batch]},**kwargs)
+        calls+=1
+        by_id={}
+        for item in result.get('assessments',[]):
+            job_id=item.get('job_id')
+            if job_id not in {j['id'] for j in batch} or job_id in by_id:
+                continue
+            by_id[job_id]=item
+        for job in batch:
+            item=by_id.get(job['id'])
+            try:
+                if item is None:
+                    raise ValueError('AI omitted this vacancy from its assessment.')
+                decision=prepare(item,job,profile,feedback)
+            except (ValueError,KeyError,TypeError):
+                # Only this vacancy becomes unassessed. Do NOT relax quotation
+                # provenance and do NOT call AI again automatically.
+                store.upsert_job({'id':job['id'],
+                                  'evaluation_status':'needs_verification',
+                                  'assessment_issue':'Source/CV evidence needs verification.'})
+                rejected+=1
+                continue
+            update={'id':job['id'],'preliminary':decision,
+                    'assessment_issue':''}
             if not job.get('description'):
-                update['evaluation_status'] = 'preliminary'
+                update['evaluation_status']='preliminary'
             store.upsert_job(update)
-    return {'ai_invocations': calls, 'assessed': len(pending), 'cached': len(jobs) - len(pending)}
+            valid+=1
+    return {'ai_invocations':calls,'assessed':valid,'invalid_evidence':rejected,
+            'cached':len(jobs)-len(pending)}
