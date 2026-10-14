@@ -65,6 +65,16 @@ def match_outlook_messages(store, messages, folder_name='Job Radar'):
             if not status:
                 metrics['unclassified']+=1
                 continue
+            # Save a bounded, private copy of classification evidence so the
+            # mailbox can be imported BEFORE a future vacancy is discovered.
+            # No full body, sender credentials, HTML or commands are stored.
+            evidence={'subject':str(message.get('subject',''))[:400],
+                      'bodyPreview':str(message.get('bodyPreview') or message.get('body_preview') or '')[:2000]}
+            mail_key=hashlib.sha256((str(message.get('id',''))+
+                          evidence['subject']+str(message.get('receivedDateTime',''))).encode()).hexdigest()
+            db.execute('''INSERT INTO outlook_evidence(evidence_id,payload,decision,received_at)
+                VALUES (?,?,?,?) ON CONFLICT(evidence_id) DO NOTHING''',
+                (mail_key,json.dumps(evidence),status,str(message.get('receivedDateTime',''))[:60]))
             matches=[r for r in rows if _matches(message,json.loads(r['payload']))]
             if len(matches)!=1:
                 metrics['ambiguous']+=1
@@ -80,3 +90,24 @@ def match_outlook_messages(store, messages, folder_name='Job Radar'):
             db.execute('UPDATE jobs SET application_status=? WHERE id=?',(status,job['id']))
             metrics['matched']+=1
     return metrics
+
+
+def recorded_decision_for(db, job):
+    """Use earlier folder evidence only if it uniquely identifies this posting."""
+    records=[dict(r) for r in db.execute(
+        'SELECT payload,decision,received_at FROM outlook_evidence ORDER BY received_at')]
+    historical=[json.loads(row['payload']) for row in
+                db.execute('SELECT payload FROM job_history')]
+    result=None
+    for record in records:
+        message=json.loads(record['payload'])
+        if not _matches(message,job):
+            continue
+        competitors=[old for old in historical
+                     if not same_posting(old,job) and _matches(message,old)]
+        if competitors:
+            continue  # Ambiguous email cannot suppress another vacancy.
+        if result=='rejected' and record['decision']=='applied':
+            continue
+        result=record['decision']
+    return result
