@@ -14,7 +14,7 @@ function el(name,attrs={},...children){
 const button=(text,action,kind='',disabled=false)=>el('button',{type:'button',class:kind,onClick:action,disabled},text);
 const tag=(text,kind='')=>el('span',{class:'tag '+kind},text);
 const priority=job=>({exceptional:4,strong:3,consider:2,weak:1,unsuitable:0})[job.preliminary?.priority]||0;
-function recommended(job){return !!job.preliminary?.recommend&&!job.preliminary?.critical_gap&&job.availability!=='closed_banner_observed'&&job.freshness?.status!=='confirmed_closed';}
+function recommended(job){return !!job.preliminary?.recommend&&!job.preliminary?.critical_gap&&['none','saved'].includes(job.application_status||'none')&&job.availability!=='closed_banner_observed'&&job.freshness?.status!=='confirmed_closed';}
 function evidenceLabel(job){
   if(['public_verified','linkedin'].includes(job.description_source?.kind)&&job.description)return 'Full source description verified';
   if(job.partial_source_text)return 'Partial source text verified · full description unverified';
@@ -63,18 +63,41 @@ function researchDiagnostics(){
     ...(run.payload.warnings||[]).map(w=>el('p',{class:'muted'},w)));
 }
 function discover(){
-  let jobs=state.jobs.filter(j=>tab==='all'||recommended(j)).sort((a,b)=>priority(b)-priority(a)||(a.title||'').localeCompare(b.title||''));
+  let jobs=state.jobs.filter(j=>tab==='all'||recommended(j)).sort((a,b)=>
+    Number(!!a.previously_seen)-Number(!!b.previously_seen)||
+    priority(b)-priority(a)||(a.title||'').localeCompare(b.title||''));
+  const older=(state.previous_opportunities||[]).filter(j=>recommended(j)).slice(0,6);
   return el('div',{},el('div',{class:'page-title'},el('h1',{},'Your next career move'),el('p',{},'Fresh research shaped by your CV and career goals.')),
     statusPanel(),button('Search with AI',()=>act('/api/search',{}),'primary',working()||!state.profile),researchDiagnostics(),
     el('p',{class:'inline-note'},'Each new search clears previous results and research history. Your CV, original career text, preferences and learned feedback stay.'),
     el('div',{class:'tabs result-tabs',role:'group','aria-label':'Search results'},...[["recommended","Recommended"],["all","All Opportunities"]].map(([id,title])=>button(title,()=>{tab=id;render();},id===tab?'active':''))),
-    jobs.length?el('div',{class:'job-grid'},jobs.map(card)):el('div',{class:'empty'},el('h3',{},state.jobs.length?'No strong recommendations established yet':'Ready for a fresh search'),el('p',{},state.jobs.length?'All discovered vacancies remain under All Opportunities. Weak matches are not promoted to fill this view.':state.cv.text?'Your saved CV and career goals are ready. Search with AI starts a fresh research session.':'Upload your CV and describe your next step in My next move.')));
+    jobs.length?el('div',{class:'job-grid'},jobs.map(card)):el('div',{class:'empty'},el('h3',{},state.jobs.length?'No strong recommendations established yet':'Ready for a fresh search'),el('p',{},state.jobs.length?'All discovered vacancies remain under All Opportunities. Weak matches are not promoted to fill this view.':state.cv.text?'Your saved CV and career goals are ready. Search with AI starts a fresh research session.':'Upload your CV and describe your next step in My next move.')),
+    older.length?el('section',{class:'panel'},el('h3',{},'Previously found · worth revisiting'),
+      el('p',{class:'muted'},'Not new. Availability has not been rechecked.'),
+      ...older.map(j=>el('div',{class:'previous-lead'},el('strong',{},j.title),
+        el('p',{},(j.company||'Employer unverified')+' · '+(j.location||'Location unverified')),
+        el('p',{class:'muted'},j.preliminary?.next_step||'Previously shortlisted'),
+        safeLink(j.url,'Original posting')))):null);
 }
 function card(job){
+  const status=el('select',{class:'status-select','aria-label':'Application status for '+job.title,
+    onChange:event=>act('/api/application',{job_id:job.id,status:event.target.value})},
+    ...[['none','Not applied'],['saved','Saved'],['applied','Applied'],['interview','Interview'],
+       ['offer','Offer'],['rejected','Rejected'],['dismissed','Dismissed']].map(([id,label])=>
+       el('option',{value:id},label)));
+  status.value=job.application_status||'none';
   return el('article',{class:'job-card'},el('h3',{},job.title),el('p',{},[job.company||'Employer unverified',job.location||'Location unverified'].join(' · ')),
-    el('div',{class:'job-tags'},tag(evidenceLabel(job),'amber'),tag(freshnessLabel(job),'amber'),job.geography?.status==='inferred'?tag('Country inferred from observed locality','amber'):null),
+    el('div',{class:'job-tags'},
+      job.previously_seen?tag('Previously seen'):tag('New discovery'),
+      tag(evidenceLabel(job),'amber'),tag(freshnessLabel(job),'amber'),
+      job.geography?.status==='inferred'?tag('Country inferred from observed locality','amber'):null),
+    el('p',{class:'muted'},'Decision authority: '+(job.preliminary?.authority||'Not verified')+
+      ' · Salary: '+(job.salary?.stated||job.salary_stated||'Not stated')+
+      ' · Hours: '+(job.hours||'Not stated')+
+      ' · Hybrid/remote: '+(job.workplace||'Not verified')),
+    job.preliminary?.tradeoffs?el('p',{class:'muted'},'Trade-offs: '+job.preliminary.tradeoffs):null,
     el('p',{class:'job-summary'},job.preliminary?.next_step||'Suitability not assessed yet.'),job.preliminary?.gaps?.length?el('p',{class:'muted'},'Important gap / uncertainty: '+job.preliminary.gaps[0]):null,
-    el('div',{class:'actions'},button('View opportunity',()=>detail(job)),safeLink(job.url,'Original posting')));
+    el('div',{class:'actions'},button('View opportunity',()=>detail(job)),safeLink(job.url,'Original posting'),status));
 }
 function detail(job){
   const p=job.preliminary;
