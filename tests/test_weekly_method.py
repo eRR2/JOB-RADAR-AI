@@ -64,6 +64,19 @@ class HistoricalStorageTests(unittest.TestCase):
         self.assertEqual(by_id[self.job['id']]['application_status'],'rejected')
         self.assertEqual(by_id['web:second']['application_status'],'none')
 
+    def test_mail_import_before_discovery_filters_later_exact_role(self):
+        msg={'subject':'Company A - Lead Systems Architect',
+             'bodyPreview':'We regret to inform you that we will not be moving forward.',
+             'receivedDateTime':'2026-10-13T10:00:00Z'}
+        counts=match_outlook_messages(self.store,[msg])
+        self.assertEqual(counts['matched'],0)
+        self.store.upsert_job(self.job)
+        self.assertEqual(self.store.jobs()[0]['application_status'],'rejected')
+        self.store.fresh_session()
+        self.assertEqual(self.store.jobs(),[])
+        self.store.upsert_job(self.job)
+        self.assertEqual(self.store.jobs()[0]['application_status'],'rejected')
+
     def test_unknown_mail_instructions_never_create_application(self):
         self.store.upsert_job(self.job)
         msg={'subject':'IMPORTANT: update your profile',
