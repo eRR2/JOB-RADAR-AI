@@ -216,8 +216,19 @@ class SessionSearch(Hunter):
         def save(job):
             d['counts']['discovered']+=1
             old=known.get(job['id']) or url_index.get(normalized_url(job['url']))
+            if not old:
+                old=next((prior for prior in known.values()
+                          if same_posting(prior,job)),None)
             if old:
-                d['counts']['duplicates']+=1;job['id']=old['id']
+                d['counts']['duplicates']+=1
+                incoming_url=job['url']
+                job['id']=old['id']
+                job['alternate_urls']=sorted(set(old.get('alternate_urls',[])+
+                                                  [old.get('url',''),incoming_url])-{''})
+                # Preserve stable source identity, especially a LinkedIn job ID,
+                # while still retaining official employer source observations.
+                job['url']=old.get('url',job['url'])
+                job['source_id']=old.get('source_id',job.get('source_id'))
                 seen={o['text'] for o in old.get('source_observations',[])}
                 job['source_observations']=old.get('source_observations',[])+[o for o in job.get('source_observations',[]) if o['text'] not in seen]
                 job['discovery_sources']=sorted(set(old.get('discovery_sources',[old['source']])+[job['source']]))
@@ -229,6 +240,7 @@ class SessionSearch(Hunter):
             self.store.upsert_job(job,run_id,country_of(job,all_markets))
             known[job['id']]={**(old or {}),**job};url_index[normalized_url(job['url'])]=known[job['id']]
             if d['counts']['accepted']%10==0:progress('Verified discoveries saved · '+d['country'])
+            return job['id']
 
         def indexed(result,telemetry):
             observations=telemetry.get('observations',[]);native.extend(observations)
@@ -245,8 +257,8 @@ class SessionSearch(Hunter):
                     d['counts']['discovered']+=1;d['counts']['discarded']+=1
                     d['discarded_candidates'].extend({'url':safe_url(r['url']) if r['reason']!='unsafe_url' else '[unsafe URL omitted]','reason':r['reason'],'country':d['country']} for r in rejected)
                     continue
-                links.setdefault(job['id'],[]).extend(candidate.get('description_sources',[]))
-                save(job)
+                saved_id=save(job)
+                links.setdefault(saved_id,[]).extend(candidate.get('description_sources',[]))
 
         def direct(query,market):
             if not profile.get('linkedin_consent') or linkedin_state(self.store)['state']!='available' or linkedin.denied_in_run:return
