@@ -130,5 +130,7 @@ Historical tasks above do not override the current contract.
 - [x] Match authorized acknowledgements using bounded sender metadata; reconsider late requisitions and preserve manual corrections.
 - [x] Store channel-specific publication evidence and transport outcomes; validate exact requisitions across moved URLs.
 - [x] Reproduce snippet-only own-channel closure, honor its normalized URL in review, and preserve verified-publication open precedence without rewriting retained jobs.
+- [x] Reproduce lost observed alternate pages and JSON-LD reuse; preserve source stages, original timestamps and incomplete enrichment, with private saved-page replay.
+- [ ] Obtain exact independently observed publications for retained LinkedIn-only candidates and establish whether missing employer URLs moved; existing records do not supply those facts.
 - [ ] Establish the exact original employer publication for the user-reported closed LinkedIn listing; retain unknown employer status until verified.
 

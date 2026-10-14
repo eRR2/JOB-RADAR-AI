@@ -14,6 +14,11 @@ Each selected market gets one primary discovery pass, with broader avenues expli
 deferred. Observed job-specific publisher sources precede consented LinkedIn detail
 requests. Only active verified full descriptions enter final assessment, at most two
 per call, with long descriptions isolated rather than truncating their requirements.
+Observed alternate publication URLs and page-read bodies are retained separately
+from snippets. Ready HTML/JobPosting pages share the controlled recovery identity gate
+and retain their observation time. Source selection, access, parsing and identity
+outcomes remain distinct; no missing URL is replaced by a guessed address or a new
+per-job AI search. Unverified selected text keeps enrichment incomplete.
 Assessment batches contain only consecutive jobs in global priority order sharing
 the same market and verified/inferred country scope. A scope change ends the current
 batch; a later job from the earlier market cannot jump ahead of intervening candidates.

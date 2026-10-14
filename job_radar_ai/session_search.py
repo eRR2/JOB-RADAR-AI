@@ -7,7 +7,7 @@ import threading
 from urllib.parse import urlsplit
 from .hunter import Hunter, DEFAULT_BUDGETS
 from .providers import Provider, ProviderError
-from .observations import observed_job
+from .observations import observed_job,retained_observation,observed_description_sources
 from .store import SessionExpired, now
 from .location import geography
 from .markets import market_profile, country_of, query_locations
@@ -16,7 +16,7 @@ from .recommendations import assess, private_profile, active, verified_descripti
 from .identity import normalized_url, linkedin_job_id
 from .history import same_posting
 from .sources import PublicFetcher, RetrievalError
-from .completion import recover, freshness, vacancy_html
+from .completion import recover, recover_page, freshness
 from .linkedin import LinkedIn, SourceError
 from .access import linkedin_state
 from .contracts import validate
@@ -149,7 +149,7 @@ class SessionSearch(Hunter):
             'discarded_candidates':[],'market_outcomes':{},'descriptions':{},'linkedin_permission':bool(self.store.get('profile').get('linkedin_consent'))}
         payload={'kind':'clean_search','job_ids':[],'warnings':[], 'diagnostics':d,
                  'usage':{'ai_invocations':0,'model_seconds':0,'web_actions':0,'cached_assessments':0},'requests':0}
-        queries=set();unsuccessful=set();links={};native=[];observed_urls=set()
+        queries=set();unsuccessful={};links={};native=[];observed_urls=set()
         known={j['id']:j for j in self.store.jobs()};url_index={normalized_url(j['url']):j for j in known.values()}
         profile=self.store.get('profile');all_markets=profile['markets']
         markets=[m for m in all_markets if market_id=='all' or m['id']==market_id]
@@ -171,6 +171,7 @@ class SessionSearch(Hunter):
 
         def safe_url(value):
             try:
+                if linkedin_job_id(value):return normalized_url(value)
                 p=urlsplit(value)
                 return safe_text(p.scheme+'://'+(p.hostname or '')+p.path)
             except ValueError:return '[unsafe URL omitted]'
@@ -185,6 +186,11 @@ class SessionSearch(Hunter):
                 'partial':sum(bool(j.get('partial_source_text') or j.get('description')) and not verified_description(j) for j in jobs),
                 'snippet_only':sum(not j.get('description') and not j.get('partial_source_text') for j in jobs)}
             d['coverage']=coverage(jobs,d)
+            selected=[j for j in jobs if j.get('shortlist_status')=='selected']
+            d['source_recovery']={
+                'reused_pages':sum(j.get('description_review',{}).get('source_coverage',{}).get('reused_page',False) for j in selected),
+                'outcomes':{reason:sum(j.get('description_review',{}).get('reason')==reason for j in selected) for reason in
+                    ('verified_source','no_observed_description_source','source_access_failed','source_parsing_failed','source_identity_unverified','enrichment_budget')}}
             d['counts']['evaluated']=d['coverage']['assessed']
             self.store.update_run(run_id,stage,payload)
 
@@ -284,6 +290,10 @@ class SessionSearch(Hunter):
             for url in telemetry.get('observed_urls',[]):
                 try:observed_urls.add(normalized_url(url))
                 except ValueError:pass
+            # URL/type metadata makes unassociated observations distinguishable
+            # from a source never observed. Page bodies remain in private records.
+            d.setdefault('observed_sources',[]).extend({'url':safe_url(o['url']),
+                'kind':o.get('observation_kind','search_snippet')} for o in observations if o.get('url'))
             for candidate in result['jobs']:
                 rejected=[];job=observed_job(candidate,observations,rejected)
                 if not job:
@@ -291,13 +301,22 @@ class SessionSearch(Hunter):
                     d['discarded_candidates'].extend({'url':safe_url(r['url']) if r['reason']!='unsafe_url' else '[unsafe URL omitted]','reason':r['reason'],'country':d['country']} for r in rejected)
                     continue
                 saved_id=save(job)
-                source_refs=[]
-                for ref in candidate.get('description_sources',[]):
-                    try:
-                        if normalized_url(ref['url']) in observed_urls:source_refs.append(ref)
-                    except ValueError:continue
+                source_refs=observed_description_sources(candidate.get('description_sources',[]),observed_urls)
+                # A deduplicated employer observation must remain a source even
+                # when the stable vacancy identity is the earlier LinkedIn URL.
+                for url in known[saved_id].get('alternate_urls',[]):
+                    if normalized_url(url) in observed_urls:source_refs.append({'url':url,'employer_url':''})
                 links.setdefault(saved_id,[]).extend(source_refs)
-                self.store.upsert_job({'id':saved_id,'description_sources':links[saved_id]})
+                source_urls={normalized_url(ref['url']) for ref in links[saved_id]}
+                descriptions=known[saved_id].get('description_observations',[])
+                for o in observations:
+                    try:
+                        if o.get('url') and normalized_url(o['url']) in source_urls:
+                            descriptions.append(retained_observation(o))
+                    except ValueError:continue
+                self.store.upsert_job({'id':saved_id,'description_sources':links[saved_id],
+                    'description_observations':descriptions})
+                known[saved_id]['description_observations']=descriptions
 
         def direct(query,market):
             if not profile.get('linkedin_consent') or linkedin_state(self.store)['state']!='available' or linkedin.denied_in_run:return
@@ -439,29 +458,47 @@ class SessionSearch(Hunter):
                     self.store.upsert_job({'id':job_id,'description_review':{'status':'available','reason':'existing_source_text'}})
                     continue
                 full=None
-                attempts=[]
-                for o in native:
-                    text=o.get('text') or o.get('content','')
-                    if o.get('url') and normalized_url(o['url'])==normalized_url(job['url']) and o.get('observation_kind')=='page_read' and '<' in text:
-                        page={'url':job['url'],'text':text,'at':now(),'bytes':len(text.encode()),'sha256':hashlib.sha256(text.encode()).hexdigest()}
-                        try:full=vacancy_html(job,page)
-                        except RetrievalError as exc:
-                            attempts.append({'url':safe_url(job['url']),'status':exc.status,'reason':safe_text(str(exc))})
+                attempts=[];refused_pages=set();reused_page=False
                 source_links=list(links.get(job_id,[]))
                 host=urlsplit(job['url']).hostname or ''
                 if host!='linkedin.com' and not host.endswith('.linkedin.com'):source_links.insert(0,{'url':job['url'],'employer_url':''})
+                # Distinct observed publication URLs, not repeated references.
+                source_links=list({normalized_url(ref['url']):ref for ref in source_links}.values())
+                source_urls={normalized_url(ref['url']) for ref in source_links}|{normalized_url(job['url'])}
+                independent=sum(not linkedin_job_id(ref['url']) and bool(urlsplit(ref['url']).path.strip('/')) for ref in source_links)
+                reads=0;seen_pages=set()
+                for o in native+job.get('description_observations',[])+job.get('source_observations',[]):
+                    text=o.get('page_text') or o.get('text') or o.get('content','')
+                    url=o.get('url','')
+                    try:key=(normalized_url(url),text) if url else None
+                    except ValueError:continue
+                    if not key or key in seen_pages or key[0] not in source_urls or o.get('observation_kind')!='page_read' or '<' not in text:continue
+                    seen_pages.add(key);reads+=1
+                    page={'url':url,'text':text,'at':o.get('at') or now(),'bytes':len(text.encode()),'sha256':hashlib.sha256(text.encode()).hexdigest()}
+                    try:
+                        full=recover_page(job,page,all_markets);reused_page=True;break
+                    except RetrievalError as exc:
+                        if exc.stage=='identity':refused_pages.add(key[0])
+                        attempts.append({'url':safe_url(url),'status':exc.status,'stage':exc.stage,
+                            'checked_at':page['at'],'reuse':'recorded_page','reason':safe_text(str(exc))})
                 for link in source_links if not full else []:
                     if not available():break
                     url=link['url']
                     if linkedin_job_id(url) or not urlsplit(url).path.strip('/'):
-                        attempts.append({'url':safe_url(url),'status':'not_a_controlled_job_source','reason':'LinkedIn uses consented guest transport; a homepage is not a job-specific source.'})
+                        attempts.append({'url':safe_url(url),'status':'not_a_controlled_job_source','stage':'source_selection','reason':'LinkedIn uses consented guest transport; a homepage is not a job-specific source.'})
                         continue
-                    if normalized_url(url) not in observed_urls or normalized_url(url) in unsuccessful:continue
+                    if normalized_url(url) in refused_pages:continue
+                    if normalized_url(url) not in observed_urls:continue
+                    if normalized_url(url) in unsuccessful:
+                        attempts.append({**unsuccessful[normalized_url(url)],'attempted':False,'reuse':'run_failure'})
+                        continue
                     try:full=recover(job,url,link['employer_url'],fetcher,all_markets);break
                     except RetrievalError as exc:
-                        unsuccessful.add(normalized_url(url));self.store.upsert_job({'id':job_id,'description_status':exc.status})
+                        self.store.upsert_job({'id':job_id,'description_status':exc.status})
                         source_note(job,url,http_status=exc.http_status)
-                        attempts.append({'url':safe_url(url),'status':exc.status,'http_status':exc.http_status,'checked_at':now(),'reason':safe_text(str(exc))})
+                        attempt={'url':safe_url(url),'status':exc.status,'stage':exc.stage,'http_status':exc.http_status,'checked_at':now(),'reason':safe_text(str(exc))}
+                        attempts.append(attempt)
+                        if exc.stage=='access':unsuccessful[normalized_url(url)]=attempt
                 if not full and job['id'].startswith('linkedin:') and profile.get('linkedin_consent') and linkedin_state(self.store)['state']=='available' and not linkedin.denied_in_run and linkedin.requests<budgets['requests'] and sum(r['operation']=='detail' for r in d['linkedin_direct'])<budgets['details'] and phase_end-time.monotonic()>30:
                     record={'country':d['country'],'operation':'detail','job_id':job['id'],'status':'running'};d['linkedin_direct'].append(record)
                     before_requests=linkedin.requests
@@ -472,26 +509,29 @@ class SessionSearch(Hunter):
                         record.update(status='received',http_status=200);progress('LinkedIn detail saved');continue
                     except (SourceError,ProviderError) as exc:
                         state=linkedin_state(self.store);record.update(status=state['state'] if state['state']!='available' else 'source_failed',http_status=state.get('http_status'),reason=safe_text(str(exc)))
-                        attempts.append({'url':safe_url(job['url']),'status':record['status'],'reason':record['reason']})
+                        attempts.append({'url':safe_url(job['url']),'status':record['status'],'stage':'access','reason':record['reason']})
                     finally:record.update(requests=linkedin.requests-before_requests,cache_hit=linkedin.last_cached)
                 elif not full and job['id'].startswith('linkedin:') and profile.get('linkedin_consent') and linkedin_state(self.store)['state']!='available':
                     state=linkedin_state(self.store)
                     source_note(job,job['url'],http_status=state.get('http_status'),provenance='access_policy')
-                    attempts.append({'url':safe_url(job['url']),'status':'blocked_shared_stop','http_status':state.get('http_status'),'checked_at':now(),'attempted':False,'reason':'Direct publisher access stopped; no detail request.'})
+                    attempts.append({'url':safe_url(job['url']),'status':'blocked_shared_stop','stage':'access','http_status':state.get('http_status'),'checked_at':now(),'attempted':False,'reason':'Direct publisher access stopped; no detail request.'})
                 if full:
                     state=freshness(full)
                     source_note(job,full['source_url'],'closed' if state['status']=='confirmed_closed' else 'open' if state['status']=='confirmed_open' else 'unknown',
                         state['evidence'],provenance='publisher_observed',checked_at=full['evidence'].get('at'))
                     self.store.upsert_job({'id':job_id,'description':full['description'],'description_status':'public_verified','location':full.get('location') or job.get('location',''),'country':full.get('country') or job.get('country',''),
                         'requisition_id':full.get('requisition_id') or job.get('requisition_id',''),
-                        'description_source':{'kind':'public_verified','url':full['source_url'],'sha256':full['evidence']['sha256'],'at':now()},'freshness':state,
+                        'description_source':{'kind':'public_verified','url':full['source_url'],'sha256':full['evidence']['sha256'],'at':full['evidence'].get('at') or now()},'freshness':state,
                         'availability':'closed_banner_observed' if state['status']=='confirmed_closed' else 'open_publisher_observed' if state['status']=='confirmed_open' else 'unknown'})
+                failure_stage=next((stage for stage in ('identity','parsing','access') if any(a.get('stage')==stage for a in attempts)),'source_selection')
+                reason='verified_source' if full else 'enrichment_budget' if not available() else 'no_observed_description_source' if not independent else {
+                    'identity':'source_identity_unverified','parsing':'source_parsing_failed','access':'source_access_failed'}.get(failure_stage,'no_observed_description_source')
                 self.store.upsert_job({'id':job_id,'description_review':{
                     'status':'available' if full else 'incomplete',
-                    'reason':'verified_source' if full else 'enrichment_budget' if not available() else 'source_validation_or_access' if attempts else 'no_observed_description_source',
+                    'reason':reason,'source_coverage':{'independent_urls':independent,'recorded_page_reads':reads,'reused_page':reused_page},
                     'attempts':attempts}})
                 progress('Candidate source enrichment recorded')
-            if any(j.get('shortlist_status')=='selected' and j.get('description_review',{}).get('status')=='pending' for j in self.store.jobs()):
+            if any(j.get('shortlist_status')=='selected' and active(j) and not verified_description(j) for j in self.store.jobs()):
                 d.setdefault('phase_outcomes',{})['enrichment']='partial'
             phase('evaluation')
             selected_jobs=[j for j in self.store.jobs() if j['id'] in shortlisted]

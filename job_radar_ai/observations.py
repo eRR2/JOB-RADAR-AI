@@ -4,6 +4,35 @@ from urllib.parse import urlsplit
 from .identity import normalized_url, linkedin_job_id
 from .store import now
 
+
+def retained_observation(item):
+    result={'url':item['url'],'text':'\n'.join(str(item[k]) for k in ('title','snippet','text','content') if item.get(k)),
+        'kind':'web_tool_observation','at':item.get('at') or now(),
+        'observation_kind':item.get('observation_kind','search_snippet')}
+    if result['observation_kind']=='page_read':
+        result['page_text']=item.get('text') or item.get('content','')
+    return result
+
+
+def observed_description_sources(refs,observed_urls):
+    """Retain only actually observed links, including a posting in ownership data."""
+    def seen(url):
+        try:
+            parsed=urlsplit(url)
+            return bool(url) and parsed.scheme=='https' and parsed.hostname and not parsed.username and not parsed.password and parsed.port in (None,443) and normalized_url(url) in observed_urls
+        except ValueError:return False
+    result=[];seen_links=set()
+    for ref in refs:
+        owner=ref.get('employer_url','') if seen(ref.get('employer_url','')) else ''
+        urls=[ref['url']]
+        if owner and len(urlsplit(owner).path.strip('/').split('/'))>=2:urls.append(owner)
+        for url in urls:
+            if not seen(url):continue
+            key=normalized_url(url)
+            if key not in seen_links:
+                result.append({'url':url,'employer_url':owner});seen_links.add(key)
+    return result
+
 def observed_job(candidate, observations, rejected=None):
     url=candidate['url']
     def discard(reason):
@@ -32,7 +61,7 @@ def observed_job(candidate, observations, rejected=None):
             'company':corroborated(candidate['company']), 'location':corroborated(candidate['location']), 'country':country,
             'country_evidence':candidate['country_quote'] if country else '', 'availability':'unknown',
             'evidence':'Observed by Codex web tool; indexed evidence does not prove vacancy openness.',
-            'source_observations':[{'url':o['url'],'text':'\n'.join(str(o[k]) for k in ('title','snippet','text','content') if o.get(k)),'kind':'web_tool_observation','at':now()} for o in sources],
+            'source_observations':[retained_observation(o) for o in sources],
             'description_status':'not_attempted','evaluation_status':'preliminary_pending'}
     requisition=candidate.get('requisition_id','').strip()
     if requisition and re.search(r'(?<!\w)'+re.escape(requisition)+r'(?!\w)',text,re.I):

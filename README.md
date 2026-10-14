@@ -55,6 +55,10 @@ missing address or access restriction remains unknown; an observed alternate pos
 must still match the exact requisition. LinkedIn closure does not establish employer
 publication closure. Outlook matching can use bounded employer sender metadata and
 rechecks authorized retained evidence when an existing job gains its requisition.
+Already observed job pages are reused before further transport, through the same
+HTML/JobPosting identity checks. Source diagnostics distinguish missing independent
+URLs, access failures, parsing failures and identity conflicts. Reused page timestamps
+remain the original observation times; missing full text keeps enrichment partial.
 Dutch employer-ruling information is shown only for roles identified as Dutch.
 
 Every recommendation explains fit, gaps, technical versus disciplinary authority and

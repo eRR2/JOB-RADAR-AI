@@ -4,7 +4,8 @@ from datetime import datetime,timezone
 from urllib.parse import urlsplit,urljoin
 from html.parser import HTMLParser
 from .recovery import DescriptionResolver
-from .sources import PublicFetcher,RetrievalError,retrieve_candidates,match_identity,plain,exact
+from .sources import PublicFetcher,RetrievalError,retrieve_candidates,structured_jobs,match_identity,plain,exact,public_url
+from .identity import normalized_url,linkedin_job_id
 from .html_posting import JobMain
 from .providers import Provider,ProviderError
 from .markets import country_of,market_profile
@@ -33,8 +34,10 @@ class Metadata(HTMLParser):
 
 def vacancy_html(job,page):
     parser=JobMain();parser.feed(page['text']);text=''.join(parser.parts).strip();title=''.join(parser.title).strip()
-    if parser.count!=1 or not parser.canonical or urljoin(page['url'],parser.canonical)!=page['url'] or exact(title)!=exact(job['title']):
-        raise RetrievalError('unverified','A unique job description, exact title and matching canonical URL are required.')
+    if parser.count!=1 or not parser.canonical:
+        raise RetrievalError('unverified','A unique job description region and published canonical URL are required.',stage='parsing')
+    if normalized_url(urljoin(page['url'],parser.canonical))!=normalized_url(page['url']) or exact(title)!=exact(job['title']):
+        raise RetrievalError('unverified','Published title or canonical URL conflicts with the retained vacancy.',stage='identity')
     if not job.get('company') or not re.search(r'(?<!\w)'+re.escape(job['company'])+r'(?!\w)',plain(page['text']),re.I):
         raise RetrievalError('unverified','Employer is not established in the actual publisher page.')
     requisition=job.get('requisition_id','')
@@ -54,7 +57,7 @@ def vacancy_html(job,page):
 
 
 def freshness(posting):
-    result={'status':'unknown','checked_at':now(),'published_at':posting.get('date_posted') or None,'source_url':posting['source_url'],'evidence':''}
+    result={'status':'unknown','checked_at':posting.get('evidence',{}).get('at') or now(),'published_at':posting.get('date_posted') or None,'source_url':posting['source_url'],'evidence':''}
     through=posting.get('valid_through')
     if through:
         try:
@@ -77,13 +80,30 @@ def recover(job,url,employer_url,fetcher,markets):
     options=retrieve_candidates(url,fetcher,employer_url)
     if not options:
         page=fetcher.get(url)
-        # Original observed employer/publication URL has a stable identity.
-        # Alternative sites must state the same locality/title/employer too.
-        options=[vacancy_html(job,page)]
-    matches=[]
+        return recover_page(job,page,markets)
+    return matched_posting(job,url,options,markets)
+
+
+def recover_page(job,page,markets):
+    """Parse already observed publisher bytes through the normal identity gate."""
+    identity=linkedin_job_id(page['url'])
+    if identity:
+        if identity!=linkedin_job_id(job['url']):
+            raise RetrievalError('unverified','Recorded page belongs to another LinkedIn listing identity.',stage='identity')
+    else:public_url(page['url'])
+    if not urlsplit(page['url']).path.strip('/'):
+        raise RetrievalError('unverified','A homepage is not an exact vacancy publication.',stage='source_selection')
+    options=structured_jobs(page) or [vacancy_html(job,page)]
+    return matched_posting(job,page['url'],options,markets)
+
+
+def matched_posting(job,url,options,markets):
+    # Original observed employer/publication URL has a stable identity.
+    # Alternative sites must state the same locality/title/employer too.
+    matches=[];failures=[]
     for option in options:
         try:
-            if url==job['url'] and len(options)==1:
+            if normalized_url(url)==normalized_url(job['url']) and len(options)==1:
                 if job.get('requisition_id') and exact(job['requisition_id'])!=exact(option.get('requisition_id','')):
                     raise RetrievalError('unverified','Original or redirected posting requisition conflicts with retained identity.')
                 if job.get('title') and exact(job['title'])!=exact(option['title']):raise RetrievalError('unverified','Original posting title changed.')
@@ -99,8 +119,11 @@ def recover(job,url,employer_url,fetcher,markets):
                 supported={**job}
                 if not country_of(job,markets) and inferred['status']=='inferred':supported['country']=inferred['country_id']
                 matches.append(match_identity(supported,option,markets))
-        except RetrievalError:continue
-    if len(matches)!=1:raise RetrievalError('unverified','No unique exact vacancy match; original observation retained.')
+        except RetrievalError as exc:failures.append(exc)
+    if len(matches)!=1:
+        cause=failures[0] if not matches and failures else None
+        raise RetrievalError('unverified','No unique exact vacancy match; original observation retained.'+
+            (' '+str(cause) if cause else ''),stage=cause.stage if cause else 'identity') from cause
     return matches[0]
 
 

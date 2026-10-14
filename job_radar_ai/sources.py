@@ -32,11 +32,12 @@ def publisher_group(host):
 
 
 class RetrievalError(SourceError):
-    def __init__(self, status, message, http_status=None, retry_after=None):
+    def __init__(self, status, message, http_status=None, retry_after=None, stage=None):
         super().__init__(message)
         self.status = status
         self.http_status=http_status
         self.retry_after=retry_after
+        self.stage=stage or ('identity' if status=='unverified' else 'parsing' if status=='incomplete' else 'access')
 
 
 def public_url(url):

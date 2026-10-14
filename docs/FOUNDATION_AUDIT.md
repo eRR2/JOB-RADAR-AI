@@ -380,3 +380,52 @@ Validation: **309 Python tests and 17 offline DOM tests passed**, zero skips.
 The unchanged launcher regression ran with the dashboard already closed. Compilation,
 JavaScript syntax and whitespace checks passed. No live research or user-record write
 was performed; exact employer-publication verification remains open.
+
+## Retained-source recovery diagnosis (15 October 2026)
+
+The latest retained run contains 16 discoveries, 11 selected candidates and one full
+description. Seven selected records retain only LinkedIn addresses; four have public
+posting addresses. The public requests returned one full publication and three HTTP
+404 outcomes. Those three never reached parsing. The recorded 164.162-second run
+shows no provider timeout or enrichment-budget exhaustion. Most missing text therefore
+comes from absent retained independent sources and missing addresses, not the length
+of the 150-second enrichment allowance. Old records do not establish whether an
+unassociated official address was never found or was discarded before persistence.
+
+Regression tests exposed independent implementation gaps: a job-specific observed
+publication in the ownership field was skipped with its LinkedIn reference; alternate
+page-read bodies were not reused; and native pages used only the HTML main-region
+fallback, missing existing JobPosting JSON-LD. Stored observations also dropped page
+type and mixed the raw body with title/snippet text. Common error labels hid source
+selection, access, parsing and exact-identity failures. Contact masking could remove
+numeric LinkedIn identities from diagnostic URLs.
+
+The current path preserves safe actually observed references and typed page bodies,
+checks original and observed alternate bytes through the same recovery identity gate,
+and reuses verified text before new transport. HTML and JobPosting retain all existing
+employer/title/requisition/location checks and description bounds. Missing URLs,
+unsafe alternatives, homepages, different LinkedIn identities and conflicting
+requisitions cannot supply replacement text. Access failures are shared within the
+run, while job-specific identity rejection cannot suppress a different candidate's
+valid match. Causes and observation times survive replay; original timestamps do not
+become new publisher checks. Selected source gaps now keep enrichment partial.
+
+Read-only private replay inspected 11 saved page versions. Eight versions across six
+distinct publications yielded verified source descriptions. Two older publications
+that the HTML-only route rejected yielded 4,329 and 1,374 characters from their actual
+JobPosting fields. The latest run's 3,314-character description was reproduced exactly.
+Those older jobs remain separate from the current 16: this work did not manufacture
+additional full descriptions for candidates lacking recorded source bytes. A known
+different-role link on an old company catalogue was not treated as a moved exact
+posting. Unsupported page structure and a short page shell remain unresolved.
+
+All real records, source exports, hashes and the per-candidate stage matrix stay under
+`.private/verification`. User database tables remain unchanged. No live AI research,
+publisher request, URL invention, retry or application action was performed.
+
+Final offline validation: **319 Python tests and 17 DOM tests passed**, zero skips.
+Compilation, JavaScript syntax and whitespace checks passed. The unchanged launcher
+test ran with the dashboard already closed. The full user-table digest matched the
+initial read-only snapshot after the tests and page replay. Missing exact source URLs,
+unproven moves and unsupported saved-page structures remain explicit open work;
+synthetic passes do not establish future live source yield.
