@@ -7,6 +7,7 @@ from contextlib import contextmanager, closing
 from datetime import datetime, timezone
 from pathlib import Path
 from .markets import country_of, migrated_profile, defaults
+from .history import create_history_table, match_history, keep_history, historical_opportunities
 
 
 def now():
@@ -70,6 +71,7 @@ class Store:
                 CREATE TABLE IF NOT EXISTS cache(key TEXT PRIMARY KEY, at TEXT NOT NULL, payload TEXT NOT NULL);
             ''')
             if not db.in_transaction:db.execute('BEGIN IMMEDIATE')
+            create_history_table(db)
             db.execute('CREATE TABLE IF NOT EXISTS job_markets(job_id TEXT NOT NULL REFERENCES jobs(id), market_id TEXT NOT NULL, PRIMARY KEY(job_id,market_id))')
             db.execute('CREATE TABLE IF NOT EXISTS market_evaluations(job_id TEXT NOT NULL REFERENCES jobs(id), market_id TEXT NOT NULL, evaluation TEXT NOT NULL, content_stale INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(job_id,market_id))')
             db.execute('CREATE TABLE IF NOT EXISTS feedback_scopes(feedback_id INTEGER PRIMARY KEY REFERENCES feedback(id), scope TEXT NOT NULL)')
@@ -144,6 +146,15 @@ class Store:
                     elif not access or active(access):knowledge[k]=v
                 elif k == 'linkedin_stop' and explicit_denial(v):
                     knowledge[k]=v
+            # A fresh search starts with an empty current view, NOT amnesia.
+            # Save previous vacancies and manually recorded application outcomes.
+            for r in db.execute('SELECT id,payload,last_seen,application_status FROM jobs').fetchall():
+                job = json.loads(r['payload'])
+                job['id'] = r['id']
+                status = r['application_status']
+                keep_history(db,job,r['last_seen'],
+                             status=status if status not in ('none','saved') else None,
+                             source='manual' if status not in ('none','saved') else None)
             token = secrets.token_hex(16)
             knowledge['search_session'] = token
             for table in ('market_evaluations','job_markets','feedback_scopes','observations','feedback','application_events','jobs','runs','cache','settings'):
@@ -191,14 +202,25 @@ class Store:
             merged = json.loads(old[0]) if old else {}
             merged.update({k: v for k, v in job.items() if v is not None})
             old_payload=json.loads(old[0]) if old else {}
+            historical = match_history(db, merged)
+            if old is None:
+                merged['previously_seen'] = bool(historical)
+                if historical:
+                    merged['historical_first_seen'] = historical['first_seen']
+                    merged['historical_status_source'] = historical['status_source']
+            else:
+                merged['previously_seen'] = old_payload.get('previously_seen',False)
             # A search observation cannot erase positive evidence from a detail.
             if old_payload.get('availability')=='closed_banner_observed' and job.get('availability')=='unknown' and not job.get('description_obtained'):
                 merged['availability']='closed_banner_observed'
                 merged['evidence']=old_payload.get('evidence','Closed banner previously observed')
             changed=bool(old and any(merged.get(key)!=old_payload.get(key) for key in ('description','title','company','location','availability')))
-            db.execute('''INSERT INTO jobs(id,payload,first_seen,last_seen) VALUES (?,?,?,?)
-                ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,last_seen=excluded.last_seen''',
-                (job['id'], json.dumps(merged), timestamp, timestamp))
+            carried_status = historical['application_status'] if historical else 'none'
+            db.execute('''INSERT INTO jobs(id,payload,first_seen,last_seen,application_status)
+                VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+                payload=excluded.payload,last_seen=excluded.last_seen''',
+                (job['id'], json.dumps(merged), timestamp, timestamp, carried_status))
+            keep_history(db,merged,timestamp)
             if changed:
                 db.execute('UPDATE market_evaluations SET content_stale=1 WHERE job_id=?',(job['id'],))
             if market_id:
@@ -227,6 +249,14 @@ class Store:
             result.append(job)
         return result
 
+    def historical_opportunities(self, limit=12):
+        from .history import same_posting
+        with self.db() as db:
+            active = [json.loads(r['payload']) for r in db.execute('SELECT payload FROM jobs')]
+            previous = historical_opportunities(db,{r.get('id') for r in active},limit=limit*4)
+        return [j for j in previous
+                if not any(same_posting(j,current) for current in active)][:limit]
+
     def evaluate(self, job_id, evaluation, market_id=None):
         with self.db() as db:
             if market_id:
@@ -246,6 +276,8 @@ class Store:
             if row[0] != status:
                 db.execute('UPDATE jobs SET application_status=? WHERE id=?', (status, job_id))
                 db.execute('INSERT INTO application_events(job_id,status,at) VALUES (?,?,?)', (job_id, status, now()))
+                stored = db.execute('SELECT payload FROM jobs WHERE id=?',(job_id,)).fetchone()
+                keep_history(db,json.loads(stored['payload']),now(),status=status,source='manual')
 
     def add_feedback(self, job_id, kind, reasons, note, scope=None):
         if kind not in ('like', 'dislike', 'irrelevant') or not isinstance(reasons, list) or len(reasons) > 10 or any(not isinstance(r, str) or len(r) > 100 for r in reasons) or not isinstance(note, str) or len(note) > 1000:
