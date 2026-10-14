@@ -74,7 +74,11 @@ def initial_plan(profile,markets,brief=None):
             piece=re.sub(r'https?://\S+|\b[^\s@]+@[^\s@]+\.[^\s@]+|(?<!\w)\+?\d[\d ()-]{7,}\d',' ',piece)
             piece=re.sub(r'^(?:next|goal|ziel|hedef)\s*:\s*','',piece,flags=re.I)
             piece=' '.join(piece.split()).strip(' ,-.:')
-            piece=re.sub(r'\s+(?:in|at|near|im|bei)
+            piece=re.sub(r'\s+(?:in|at|near|im|bei)$','',piece,flags=re.I)
+            words=piece.split()
+            if 2<=len(words)<=7 and len(piece)<=75 and not piece.endswith(('.', '?', '!')):
+                if piece not in out:out.append(piece)
+        return out[:7]
     for market in markets:
         values=[p.get('value','') for p in entries
                 if p.get('topic') in ('target_roles','role_families','career_direction','management_progression')
