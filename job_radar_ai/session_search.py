@@ -14,6 +14,7 @@ from .markets import market_profile, country_of, query_locations
 from .geography import valid_query, scope_for
 from .recommendations import assess, context, private_profile
 from .identity import normalized_url, linkedin_job_id
+from .history import same_posting
 from .sources import PublicFetcher, RetrievalError
 from .completion import recover, freshness, vacancy_html
 from .linkedin import LinkedIn, SourceError
@@ -21,7 +22,7 @@ from .access import linkedin_state
 from .contracts import validate
 
 PHASE_SECONDS = {'discovery':600,'enrichment':150,'evaluation':150}
-MAX_AI_CALLS = 28
+MAX_AI_CALLS = 16
 RESEARCH = '''DISCOVERY ONLY: research real vacancies using supported web search, LinkedIn indexed
 FIRST plus independent employer careers and indexed web. Follow the one supplied strategy and
 cover its realistic role families and geography. Explore credible adjacent industries and
@@ -34,38 +35,66 @@ Do not repeat known postings, unsuccessful queries or unproductive avenues. Use 
 for unknown facts. Respect robots/authentication/publisher stops; no direct page opening of a
 restricted LinkedIn publisher, retries or bypass. Independent indexed discovery remains allowed.
 continue_research only for new worthwhile avenues. The response envelope is not a total quota.
+Return a relevant role ONLY if there is a credible path from the supplied real
+professional background and next-career request to the core responsibilities;
+do not return unrelated specialist work just because its title is Architect,
+Lead or Manager. Explore cross-sector careers when capabilities transfer.
+This is generic reasoning, not an industry blacklist. Use varied role/level
+and employer-specific queries, beginning with explicitly prioritized employers.
+Do not search with entire goal paragraphs or generic single-word titles.
 No private CV text, names, contacts or identifying history in public queries.'''
-ENRICH = '''Select potentially strong candidates worth enriching from this batch of actual
+ENRICH = '''First apply a strict but fair relevance triage. Select potentially strong candidates worth enriching from this batch of actual
 observed source evidence and the actual CV/next-career direction. Prioritize demonstrated
 responsibilities, credible progression and leadership; do not choose title-only specialist
-mismatches. Missing description is uncertainty, not automatic rejection. Return exact supplied
-candidate_ids in priority order. This is enrichment selection, NOT a recommendation. No tools.'''
+mismatches. Missing description is uncertainty, not automatic rejection. Exclude clear
+specialist-domain mismatches, unrelated roles, implausible seniority or geographic
+mismatches, but preserve credible stretch roles and cross-sector leadership.
+Select only evidence-backed credible next moves; do not fill a quota.
+Return exact supplied candidate_ids in priority order. This is relevance
+selection, NOT a final recommendation. No tools.'''
 
 
 def initial_plan(profile,markets,brief=None):
-    """Transport seeds from saved intent, not a new semantic interpretation or fixed role list."""
+    """Concise transport seeds from user intent, not fixed company/job dictionaries.
+
+    Never pass a full career paragraph to direct LinkedIn. Indexed discovery can
+    expand the complete next-move request semantically inside its own research call.
+    """
     intent=profile.get('intent') or {}
     entries=intent.get('preferences',[])
     plans=[];families=[]
+    def concise(value):
+        value=str(value or '')
+        pieces=re.split(r'[,;/\n]|\s+(?:or|oder|und|and)\s+',value,flags=re.I)
+        out=[]
+        for piece in pieces:
+            piece=re.sub(r'https?://\S+|\b[^\s@]+@[^\s@]+\.[^\s@]+|(?<!\w)\+?\d[\d ()-]{7,}\d',' ',piece)
+            piece=' '.join(piece.split()).strip(' ,-.:')
+            words=piece.split()
+            if 2<=len(words)<=7 and len(piece)<=75 and not piece.endswith(('.', '?', '!')):
+                if piece not in out:out.append(piece)
+        return out[:7]
     for market in markets:
-        values=[p['value'] for p in entries if p.get('topic') in ('career_direction','management_progression','target_roles','role_families') and p.get('scope','') in ('',market['id']) and p.get('origin') in ('explicit','cv_evidenced')]
-        if not values:values=[(brief or {}).get('direction') or intent.get('summary') or profile.get('looking_for') or profile.get('objectives','')]
+        values=[p.get('value','') for p in entries
+                if p.get('topic') in ('target_roles','role_families','career_direction','management_progression')
+                and p.get('scope','') in ('',market['id']) and p.get('origin') in ('explicit','cv_evidenced')]
+        values += [(brief or {}).get('direction',''), intent.get('summary','')]
         terms=[]
+        places={place for m in profile['markets'] for place in [m['country'],*m['locations']]}
         for value in values:
-            for part in re.split(r'[;\n]',value):
-                part=re.sub(r'https?://\S+|\b[^\s@]+@[^\s@]+\.[^\s@]+|(?<!\w)\+?\d[\d ()-]{7,}\d',' ',part)
-                places={place for m in profile['markets'] for place in [m['country'],*m['locations']]}
+            for term in concise(value):
                 for place in sorted(places,key=len,reverse=True):
-                    part=re.sub(r'(?<!\w)'+re.escape(place)+r'(?!\w)',' ',part,flags=re.I)
-                part=' '.join(part.split()).strip(' ,-.:')
-                if len(part)>160:part=part[:161].rsplit(' ',1)[0][:160]
-                if part and part not in terms:terms.append(part)
-        # Each query location is copied from the confirmed market, never inferred from a city.
-        queries=[dict(query=term,location=location,remote='any',reason='Saved confirmed career direction') for location in query_locations(market) for term in terms]
-        plans.append({'market_id':market['id'],'linkedin_queries':queries,'web_queries':terms})
+                    term=re.sub(r'(?<!\w)'+re.escape(place)+r'(?!\w)',' ',term,flags=re.I)
+                term=' '.join(term.split()).strip(' ,-.')
+                if 2<=len(term.split())<=7 and term not in terms:terms.append(term)
+        locations=query_locations(market)[:3]
+        queries=[dict(query=term,location=location,remote='any',
+                      reason='Explicit career-goal role phrase')
+                 for term in terms[:4] for location in locations]
+        plans.append({'market_id':market['id'],'linkedin_queries':queries,'web_queries':terms[:7]})
         families.extend(term for term in terms if term not in families)
-    return {'strategy':'Expand the saved career direction intelligently using observed responsibilities and confirmed geography; evaluate actual CV fit privately later. No invented preferences.',
-            'role_families':families,'markets':plans}
+    return {'strategy':'Explore true responsibility matches, credible leadership progression, confirmed location and source freshness using the saved career request.',
+            'role_families':families[:12],'markets':plans}
 
 
 class SessionSearch(Hunter):
@@ -276,6 +305,10 @@ class SessionSearch(Hunter):
                 try:
                     result=call('research_v5',RESEARCH,{'background':brief['background'],'career_direction':brief['direction'],'strategy':strategy['strategy'],'role_families':strategy['role_families'],
                         'market':{k:m[k] for k in ('id','country','locations','scope_type','remote','relocation') if k in m},'planned_queries':plan['web_queries'],'country_preferences':[v for v in brief['country_preferences'] if v['country_id']==m['id']],
+                        'career_goals':profile.get('looking_for','')[:2000],
+                        'career_evidence':[x.get('text','')[:500] for x in (profile.get('intent') or {}).get('experience',[])[:8]],
+                        'priority_employers':[p.get('value','') for p in (profile.get('intent') or {}).get('preferences',[])
+                                              if p.get('topic') in ('target_employers','employer_priority') and p.get('origin')=='explicit'][:8],
                         'previous_queries':sorted(queries),'known_postings':[{'id':j['id'],'url':j['url']} for j in self.store.jobs()],
                         'next_avenues':avenues[m['id']],'restricted_publishers':self.store.access_restrictions(),'linkedin_access':linkedin_state(self.store),'linkedin_stop':self.store.get('linkedin_stop')},True,max(1,visit_end-time.monotonic()))
                     telemetry=ai.telemetry
@@ -283,7 +316,7 @@ class SessionSearch(Hunter):
                     indexed(result,telemetry)
                     payload['warnings'].extend(safe_text(v) for v in result['limitations'])
                     new_avenues=result['next_avenues'];new=d['counts']['accepted']-before
-                    expand=result['continue_research'] and new_avenues and passes[m['id']]<3 and (new or queries!=previous_queries or new_avenues!=avenues[m['id']])
+                    expand=result['continue_research'] and new_avenues and passes[m['id']]<2 and new>0 and (queries!=previous_queries or new_avenues!=avenues[m['id']])
                     if expand:pending.append(m)
                     d['market_outcomes'][m['id']]={'indexed_passes':passes[m['id']],'new_jobs':new,'status':'more_avenues' if expand else 'avenues_exhausted'}
                     avenues[m['id']]=new_avenues
