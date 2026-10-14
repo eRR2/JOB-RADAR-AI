@@ -78,7 +78,7 @@ def initial_plan(profile,markets,brief=None):
         values=[p.get('value','') for p in entries
                 if p.get('topic') in ('target_roles','role_families','career_direction','management_progression')
                 and p.get('scope','') in ('',market['id']) and p.get('origin') in ('explicit','cv_evidenced')]
-        values += [(brief or {}).get('direction',''), intent.get('summary','')]
+        values += [(brief or {}).get('direction',''), intent.get('summary',''), profile.get('looking_for','')]
         terms=[]
         places={place for m in profile['markets'] for place in [m['country'],*m['locations']]}
         for value in values:
@@ -88,9 +88,11 @@ def initial_plan(profile,markets,brief=None):
                 term=' '.join(term.split()).strip(' ,-.')
                 if 2<=len(term.split())<=7 and term not in terms:terms.append(term)
         locations=query_locations(market)[:3]
-        queries=[dict(query=term,location=location,remote='any',
-                      reason='Explicit career-goal role phrase')
-                 for term in terms[:4] for location in locations]
+        # Interleave role families and towns rather than using up every source
+        # request on one generic term in three towns.
+        queries=[dict(query=terms[i % len(terms)],location=locations[i % len(locations)],
+                      remote='any',reason='Explicit career-goal role phrase')
+                 for i in range(min(8,len(terms)*len(locations)))] if terms and locations else []
         plans.append({'market_id':market['id'],'linkedin_queries':queries,'web_queries':terms[:7]})
         families.extend(term for term in terms if term not in families)
     return {'strategy':'Explore true responsibility matches, credible leadership progression, confirmed location and source freshness using the saved career request.',
