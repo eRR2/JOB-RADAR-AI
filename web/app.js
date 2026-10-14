@@ -63,15 +63,21 @@ function researchDiagnostics(){
     ...(run.payload.warnings||[]).map(w=>el('p',{class:'muted'},w)));
 }
 function discover(){
-  let jobs=state.jobs.filter(j=>tab==='all'||recommended(j)).sort((a,b)=>
+  let jobs=state.jobs.filter(j=>j.shortlist_status!=='low_relevance' &&
+    (tab==='all'||recommended(j))).sort((a,b)=>
     Number(!!a.previously_seen)-Number(!!b.previously_seen)||
     priority(b)-priority(a)||(a.title||'').localeCompare(b.title||''));
   const older=(state.previous_opportunities||[]).filter(j=>recommended(j)).slice(0,6);
+  const lower=tab==='all'?state.jobs.filter(j=>j.shortlist_status==='low_relevance'):[];
+
   return el('div',{},el('div',{class:'page-title'},el('h1',{},'Your next career move'),el('p',{},'Fresh research shaped by your CV and career goals.')),
     statusPanel(),button('Search with AI',()=>act('/api/search',{}),'primary',working()||!state.profile),researchDiagnostics(),
-    el('p',{class:'inline-note'},'Each new search clears previous results and research history. Your CV, original career text, preferences and learned feedback stay.'),
+    el('p',{class:'inline-note'},'Each new search shows fresh findings while preserving your CV, career goals, learned feedback and application/previous vacancy history.'),
     el('div',{class:'tabs result-tabs',role:'group','aria-label':'Search results'},...[["recommended","Recommended"],["all","All Opportunities"]].map(([id,title])=>button(title,()=>{tab=id;render();},id===tab?'active':''))),
     jobs.length?el('div',{class:'job-grid'},jobs.map(card)):el('div',{class:'empty'},el('h3',{},state.jobs.length?'No strong recommendations established yet':'Ready for a fresh search'),el('p',{},state.jobs.length?'All discovered vacancies remain under All Opportunities. Weak matches are not promoted to fill this view.':state.cv.text?'Your saved CV and career goals are ready. Search with AI starts a fresh research session.':'Upload your CV and describe your next step in My next move.')),
+    lower.length?el('details',{class:'panel'},el('summary',{},'Lower-relevance discoveries ('+lower.length+')'),
+      el('p',{class:'muted'},'Observed source listings not selected for career-fit review. No automatic recommendation.'),
+      ...lower.map(j=>el('p',{},j.title+' · '+(j.company||'Employer unverified')+' · ',safeLink(j.url,'Source')))):null,
     older.length?el('section',{class:'panel'},el('h3',{},'Previously found · worth revisiting'),
       el('p',{class:'muted'},'Not new. Availability has not been rechecked.'),
       ...older.map(j=>el('div',{class:'previous-lead'},el('strong',{},j.title),
