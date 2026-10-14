@@ -35,6 +35,7 @@ SCHEMAS = {
     'enrichment':obj({'candidate_ids':array(string(250),40),'reason':string(1500)}),
     'session_brief': obj({'background':array(string(700),12),'direction':string(1500),'country_preferences':array(obj({'country_id':string(2),'conditions':array(string(800),15)}),6)}),
     'priority_v52': obj({'assessments': array(obj({'job_id': string(250), 'category': enum('direct','transferable','stretch','unrelated','needs_verification'), 'recommend': {'type':'boolean'}, 'priority': enum('exceptional','strong','consider','weak','unsuitable'), 'next_step': string(3000), 'critical_gap': {'type':'boolean'}, 'gaps': array(string(1000)), 'evidence': array(EVIDENCE)}),20)}),
+
     'brief_v5': obj({'professional_background':array(string(1000)), 'career_direction':string(4000)}),
     'research_v5': obj({'jobs': array(obj({'url':string(2000),'title':string(500),'company':string(500),'location':string(500), 'country':string(100),'country_quote':string(2000),'geography_inference':obj({'country_id':string(2),'basis':enum('city_country_mapping','unknown'),'confidence':enum('strong','ambiguous','unknown'),'explanation':string(1000)}),'description_sources':array(obj({'url':string(2000),'employer_url':string(2000)}),5)}),20), 'summary':string(6000),'limitations':array(string(1000)), 'continue_research':{'type':'boolean'},'next_avenues':array(string(1000))}),
     'preliminary_v5': obj({'assessments':array(obj({'job_id':string(250),'category':enum('direct','transferable','stretch','unrelated','needs_verification'),'explanation':string(4000),'promising':{'type':'boolean'},'gaps':array(string(1000))}),20)}),
@@ -60,3 +61,15 @@ def validate(kind, value):
     except (jsonschema.ValidationError, TypeError) as exc:
         raise ValueError('AI returned invalid structured output; it was not applied.') from exc
     return value
+
+# Additional findings are optional for backward compatibility with saved decisions.
+# Missing terms must be unknown, never inferred from the employer's reputation.
+SCHEMAS['priority_v52']['properties']['assessments']['items']['properties'].update({
+    'authority': string(900),
+    'tradeoffs': string(1200),
+    'work_arrangement': string(900),
+    'salary_evidence': string(900),
+    'hours_evidence': string(900),
+    'ruling_employer_support': enum('stated','not_stated','unknown'),
+    'ruling_eligibility': enum('unverified','not_applicable'),
+})
