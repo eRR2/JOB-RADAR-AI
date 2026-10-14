@@ -92,10 +92,13 @@ function card(job){
       tag(evidenceLabel(job),'amber'),tag(freshnessLabel(job),'amber'),
       job.geography?.status==='inferred'?tag('Country inferred from observed locality','amber'):null),
     el('p',{class:'muted'},'Decision authority: '+(job.preliminary?.authority||'Not verified')+
-      ' · Salary: '+(job.salary?.stated||job.salary_stated||'Not stated')+
+      ' · Salary (source): '+(job.salary?.stated||job.salary_stated||job.preliminary?.salary_evidence||'Not stated')+
       ' · Hours: '+(job.hours||'Not stated')+
       ' · Hybrid/remote: '+(job.workplace||'Not verified')),
     job.preliminary?.tradeoffs?el('p',{class:'muted'},'Trade-offs: '+job.preliminary.tradeoffs):null,
+    job.preliminary?.ruling_employer_support?
+      el('p',{class:'muted'},'Dutch ruling employer support: '+
+        job.preliminary.ruling_employer_support+' · Personal eligibility: not assessed'):null,
     el('p',{class:'job-summary'},job.preliminary?.next_step||'Suitability not assessed yet.'),job.preliminary?.gaps?.length?el('p',{class:'muted'},'Important gap / uncertainty: '+job.preliminary.gaps[0]):null,
     el('div',{class:'actions'},button('View opportunity',()=>detail(job)),safeLink(job.url,'Original posting'),status));
 }
@@ -109,6 +112,22 @@ function detail(job){
   if(!$('#job-dialog').open)$('#job-dialog').showModal();
 }
 function preferences(){
+  const outlookImport=el('input',{type:'file',accept:'.json,application/json',
+    'aria-label':'Import read-only Outlook Job Radar evidence',
+    onChange:async event=>{
+      const f=event.target.files?.[0];if(!f)return;
+      if(f.size>2000000)return toast('Use a Job Radar JSON export under 2 MB.',true);
+      try{
+        const payload=JSON.parse(await f.text());
+        const messages=Array.isArray(payload)?payload:payload.messages;
+        if(!Array.isArray(messages))throw Error('Expected JSON messages array.');
+        const result=await api('/api/outlook-history-import',
+                               {folder:'Job Radar',messages});
+        await refresh();
+        toast('Matched '+result.matched+' applications/rejections; '+
+              result.ambiguous+' ambiguous records left unchanged.');
+      }catch(err){toast(err.message,true);}
+    }});
   const p=state.profile||{},text=el('textarea',{rows:8,'aria-label':'Your career goals',value:careerDraft??p.looking_for??p.objectives??'',onInput:event=>careerDraft=event.target.value,placeholder:'Describe your next career move, countries and locations, working conditions and anything important to you.'});
   const provider=el('select',{'aria-label':'AI subscription'},...['codex','claude'].map(id=>el('option',{value:id},id==='codex'?'Codex subscription':'Claude Code subscription')));provider.value=p.provider||'codex';
   const consent=el('input',{type:'checkbox',checked:!!p.consent}),web=el('input',{type:'checkbox',checked:!!p.secondary}),direct=el('input',{type:'checkbox',checked:!!p.linkedin_consent});
@@ -121,6 +140,8 @@ function preferences(){
     el('p',{},state.providers[provider.value]?.status||'Provider not checked'),el('p',{class:'muted'},'A separately authenticated subscription CLI is required. Desktop login alone does not prove inference works; no API-key fallback.'),
     el('label',{class:'check'},consent,'Allow the selected AI to process my CV and career preferences'),el('label',{class:'check'},web,'Allow anonymous public web research'),
     el('label',{class:'check'},direct,'Allow direct LinkedIn guest requests (stops on access restrictions)'),
+    el('p',{class:'muted'},'Optional: import read-only message evidence from Outlook Job Radar. This local app does not automatically access your Outlook account.'),
+    outlookImport,
     button('Search with AI',()=>act('/api/career-search',{looking_for:text.value,provider:provider.value,consent:consent.checked,secondary:web.checked,linkedin_consent:direct.checked}),'primary',working()),
     el('p',{class:'muted'},'The original text is authoritative. No understanding-approval screen. Every search starts with empty results.')));
 }
