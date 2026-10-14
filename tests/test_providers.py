@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import threading
 import unittest
@@ -70,6 +71,18 @@ class ProviderTests(unittest.TestCase):
         finally:
             timer.join()
 
+    @unittest.skipUnless(os.name == 'nt', 'Windows process termination')
+    def test_denied_tree_termination_still_cancels_owned_process(self):
+        import sys
+        import subprocess
+        stop=threading.Event()
+        with patch('job_radar_ai.providers.subprocess.run',return_value=subprocess.CompletedProcess([],1)):
+            started=time.monotonic()
+            with self.assertRaisesRegex(ProviderError,'Canceled'):
+                bounded_process([sys.executable,'-c','import time;time.sleep(20)'],cancel=stop,
+                                on_started=lambda:stop.set())
+            self.assertLess(time.monotonic()-started,3)
+
     def test_claude_error_is_not_success(self):
         with self.assertRaises(ProviderError):
             Provider.parse_claude(json.dumps({'is_error': True, 'result': 'usage limit'}))
@@ -77,3 +90,4 @@ class ProviderTests(unittest.TestCase):
     def test_malformed_and_missing_structured_output_are_refused(self):
         with self.assertRaises(ProviderError):
             Provider.parse_claude(json.dumps({'result': 'I did the work'}))
+

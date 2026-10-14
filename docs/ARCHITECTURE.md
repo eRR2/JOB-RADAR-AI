@@ -1,10 +1,17 @@
-# Active clean-search workflow
+# Active weekly-research workflow
 
-See [clean-search acceptance](CLEAN_SEARCH.md). Version 5.3 uses `SessionSearch` and
-an atomic SQLite search-session boundary. Durable user knowledge and active publisher
-restrictions are retained; jobs, evidence, plans, caches and runs are disposable.
-Old worker writes are transactionally refused. The browser has Recommended and
-All Opportunities only. Earlier coordinators below are historical references.
+See [foundation audit](FOUNDATION_AUDIT.md). Version 5.3 uses `SessionSearch` and
+an atomic SQLite search-session boundary. Current results/caches/runs are disposable;
+`job_history`, `history_application_events`, `outlook_evidence`, CV/goals and explicit
+feedback are durable. Imported mail never teaches employer-rejection preferences.
+Old workers cannot write into replacement sessions. Private anonymous briefs are
+cached by knowledge signature before web research; raw career text and CV experience
+records stay in private inference. Exact source/employer requisitions outrank URL
+tracking differences; ID-less matches require corroborating content. Triage precedes
+costly description recovery and assessment. Each invalid assessment is withheld
+independently; old recommendations cannot remain active after failed verification.
+The browser has Recommended and All Opportunities, with a separate previous-leads
+section. Earlier coordinators and acceptance documents below are historical references.
 
 # V5 architecture
 
@@ -108,3 +115,4 @@ with process-only PATH. Official CLI browser login and real inference are separa
 from Desktop login. Python/source/AI boundaries and database version 2 are preserved.
 
 See [Phase 2 boundaries and migration](V2_PHASE2.md). `markets.py` validates configurable country profiles and exact query-location boundaries; explicit country tokens are source evidence, while provenance/cities are not country verification. Additive schema version 2 retains every original row and creates a verified consistent backup before migration. Market assessment and feedback scope tables share global job identities/application history. Regional revisions and learned preferences are separate; explicitly global feedback can affect all markets. One run, one LinkedIn transport, fair quotas and persistent spacing/stops cover Search all. Stale recommendations remain visible until validated replacement. Skill mode retains catch-up reminders only.
+

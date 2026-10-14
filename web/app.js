@@ -14,7 +14,7 @@ function el(name,attrs={},...children){
 const button=(text,action,kind='',disabled=false)=>el('button',{type:'button',class:kind,onClick:action,disabled},text);
 const tag=(text,kind='')=>el('span',{class:'tag '+kind},text);
 const priority=job=>({exceptional:4,strong:3,consider:2,weak:1,unsuitable:0})[job.preliminary?.priority]||0;
-function recommended(job){return !!job.preliminary?.recommend&&!job.preliminary?.critical_gap&&['none','saved'].includes(job.application_status||'none')&&job.availability!=='closed_banner_observed'&&job.freshness?.status!=='confirmed_closed';}
+function recommended(job){return !!job.preliminary?.recommend&&!job.preliminary?.critical_gap&&job.evaluation_status!=='needs_verification'&&!job.preliminary_stale&&['none','saved'].includes(job.application_status||'none')&&job.availability!=='closed_banner_observed'&&job.freshness?.status!=='confirmed_closed';}
 function evidenceLabel(job){
   if(['public_verified','linkedin'].includes(job.description_source?.kind)&&job.description)return 'Full source description verified';
   if(job.partial_source_text)return 'Partial source text verified · full description unverified';
@@ -64,10 +64,10 @@ function researchDiagnostics(){
 }
 function discover(){
   let jobs=state.jobs.filter(j=>j.shortlist_status!=='low_relevance' &&
-    (tab==='all'||recommended(j))).sort((a,b)=>
+    (tab==='all'||(!j.previously_seen&&recommended(j)))).sort((a,b)=>
     Number(!!a.previously_seen)-Number(!!b.previously_seen)||
     priority(b)-priority(a)||(a.title||'').localeCompare(b.title||''));
-  const older=(state.previous_opportunities||[]).filter(j=>recommended(j)).slice(0,6);
+  const older=[...state.jobs.filter(j=>j.previously_seen),...(state.previous_opportunities||[])].filter(recommended).sort((a,b)=>priority(b)-priority(a)).slice(0,6);
   const lower=tab==='all'?state.jobs.filter(j=>j.shortlist_status==='low_relevance'):[];
 
   return el('div',{},el('div',{class:'page-title'},el('h1',{},'Your next career move'),el('p',{},'Fresh research shaped by your CV and career goals.')),
@@ -77,7 +77,7 @@ function discover(){
     jobs.length?el('div',{class:'job-grid'},jobs.map(card)):el('div',{class:'empty'},el('h3',{},state.jobs.length?'No strong recommendations established yet':'Ready for a fresh search'),el('p',{},state.jobs.length?'All discovered vacancies remain under All Opportunities. Weak matches are not promoted to fill this view.':state.cv.text?'Your saved CV and career goals are ready. Search with AI starts a fresh research session.':'Upload your CV and describe your next step in My next move.')),
     lower.length?el('details',{class:'panel'},el('summary',{},'Lower-relevance discoveries ('+lower.length+')'),
       el('p',{class:'muted'},'Observed source listings not selected for career-fit review. No automatic recommendation.'),
-      ...lower.map(j=>el('p',{},j.title+' · '+(j.company||'Employer unverified')+' · ',safeLink(j.url,'Source')))):null,
+      ...lower.map(card)):null,
     older.length?el('section',{class:'panel'},el('h3',{},'Previously found · worth revisiting'),
       el('p',{class:'muted'},'Not new. Availability has not been rechecked.'),
       ...older.map(j=>el('div',{class:'previous-lead'},el('strong',{},j.title),
@@ -95,16 +95,18 @@ function card(job){
   return el('article',{class:'job-card'},el('h3',{},job.title),el('p',{},[job.company||'Employer unverified',job.location||'Location unverified'].join(' · ')),
     el('div',{class:'job-tags'},
       job.previously_seen?tag('Previously seen'):tag('New discovery'),
+      job.preliminary?.priority?tag('Priority: '+job.preliminary.priority):null,
       tag(evidenceLabel(job),'amber'),tag(freshnessLabel(job),'amber'),
       job.geography?.status==='inferred'?tag('Country inferred from observed locality','amber'):null),
     el('p',{class:'muted'},'Decision authority: '+(job.preliminary?.authority||'Not verified')+
       ' · Salary (source): '+(job.salary?.stated||job.salary_stated||job.preliminary?.salary_evidence||'Not stated')+
-      ' · Hours: '+(job.hours||'Not stated')+
-      ' · Hybrid/remote: '+(job.workplace||'Not verified')),
+      ' · Hours: '+(job.preliminary?.hours_evidence||job.hours||'Not stated')+
+      ' · Hybrid/remote: '+(job.preliminary?.work_arrangement||job.workplace||'Not verified')),
     job.preliminary?.tradeoffs?el('p',{class:'muted'},'Trade-offs: '+job.preliminary.tradeoffs):null,
     job.preliminary?.ruling_employer_support?
       el('p',{class:'muted'},'Dutch ruling employer support: '+
-        job.preliminary.ruling_employer_support+' · Personal eligibility: not assessed'):null,
+        job.preliminary.ruling_employer_support+' · Personal eligibility: not assessed'+
+        (job.preliminary.ruling_quote?' · Source: '+job.preliminary.ruling_quote:'')):null,
     el('p',{class:'job-summary'},job.preliminary?.next_step||'Suitability not assessed yet.'),job.preliminary?.gaps?.length?el('p',{class:'muted'},'Important gap / uncertainty: '+job.preliminary.gaps[0]):null,
     el('div',{class:'actions'},button('View opportunity',()=>detail(job)),safeLink(job.url,'Original posting'),status));
 }
@@ -162,3 +164,4 @@ for(const b of document.querySelectorAll('[data-view]'))b.addEventListener('clic
 $('#job-dialog').addEventListener('click',event=>{if(event.target!==event.currentTarget)return;const r=event.currentTarget.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)event.currentTarget.close();});
 refresh();
 setInterval(async()=>{if(!state)return;const wasWorking=working();const next=await api('/api/state');if(wasWorking||next.runs[0]?.status==='running'||next.operation?.status==='running'){state=next;render();}},2500);
+

@@ -1,4 +1,8 @@
-# Clean-search simplification acceptance
+# Historical clean-search simplification acceptance
+
+The weekly-research branch supersedes the disposable application-history contract
+described here. Use [the foundation audit](FOUNDATION_AUDIT.md) and the current README
+for active behavior and verification limits.
 
 ## Persistent knowledge and disposable sessions
 
@@ -139,3 +143,4 @@ Focused hotfix verification: 25 Python checks, 6 Node checks and JS syntax passe
 were also exercised against a private copy of the actual saved CV/preferences, with a mocked
 worker: one reset each, zero intent AI invocations, unchanged country/condition records.
 No live Codex inference or LinkedIn/source request was made; real research remains unverified.
+

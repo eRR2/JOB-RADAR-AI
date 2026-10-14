@@ -55,7 +55,14 @@ def kill_tree(process):
     if process.poll() is not None:
         return
     if os.name == 'nt':
-        subprocess.run(['taskkill.exe', '/PID', str(process.pid), '/T', '/F'], capture_output=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
+        try:
+            subprocess.run(['taskkill.exe', '/PID', str(process.pid), '/T', '/F'], capture_output=True, timeout=2, creationflags=subprocess.CREATE_NO_WINDOW)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        # Restricted Windows environments may refuse the tree utility even
+        # though the application's own child handle remains terminable.
+        if process.poll() is None:
+            process.kill()
     else:
         import signal
         try:
@@ -282,3 +289,4 @@ class Provider:
                 return validate(kind, value)
             except ValueError as exc:
                 raise ProviderError(str(exc)) from exc
+

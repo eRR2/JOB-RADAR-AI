@@ -28,15 +28,15 @@ def request_id(job):
 
 def same_posting(a, b):
     """Require an identity or a conservative same-employer/role/locality match."""
-    la, lb = linkedin_job_id(a.get('url', '')), linkedin_job_id(b.get('url', ''))
-    if la and lb:
-        return la == lb
     ca, cb = folded(a.get('company')), folded(b.get('company'))
     if ca and cb and ca != cb:
         return False
     ra, rb = request_id(a), request_id(b)
     if ra and rb and ca and cb and (a.get('requisition_id') or a.get('job_requisition_id')) and (b.get('requisition_id') or b.get('job_requisition_id')):
         return ra == rb
+    la, lb = linkedin_job_id(a.get('url', '')), linkedin_job_id(b.get('url', ''))
+    if la and lb:
+        return la == lb
     # LinkedIn IDs and official ATS requisition IDs have different namespaces.
     # They can still refer to the exact same company/title/locality position.
     try:
@@ -51,9 +51,9 @@ def same_posting(a, b):
     if not folded(a.get('location')) or folded(a.get('location')) != folded(b.get('location')):
         return False
     da, db = a.get('description', ''), b.get('description', '')
-    if da and db and len(da) > 250 and len(db) > 250:
-        return SequenceMatcher(None, folded(da)[:5000], folded(db)[:5000], autojunk=True).ratio() >= 0.72
-    return True
+    if da and db and len(folded(da)) >= 120 and len(folded(db)) >= 120:
+        return SequenceMatcher(None, folded(da)[:5000], folded(db)[:5000], autojunk=True).ratio() >= 0.85
+    return False  # Same title/locality alone cannot prove the same requisition.
 
 
 def historical_key(job):
@@ -85,6 +85,20 @@ def create_history_table(db):
         decision TEXT NOT NULL,
         received_at TEXT NOT NULL
     )''')
+    db.execute('''CREATE TABLE IF NOT EXISTS history_application_events (
+        event_key TEXT PRIMARY KEY,
+        identity TEXT NOT NULL REFERENCES job_history(identity),
+        job_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        at TEXT NOT NULL,
+        source TEXT NOT NULL
+    )''')
+
+
+def keep_application_event(db, identity, job_id, status, at, source, event_key):
+    db.execute('''INSERT OR IGNORE INTO history_application_events
+                  (event_key,identity,job_id,status,at,source) VALUES (?,?,?,?,?,?)''',
+               (event_key,identity,job_id,status,at,source))
 
 
 def match_history(db, job):
@@ -145,3 +159,4 @@ def historical_opportunities(db, active_ids, limit=12):
         if len(out) >= limit:
             break
     return out
+

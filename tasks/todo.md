@@ -94,3 +94,21 @@ The following tasks document historical branches.
 - [x] Actual fresh/upgrade managed workspace launch with preserved private state and skill binding; no new downloads.
 - [ ] Actual browser QA: Chrome blocks local test page; clean Windows VM/Desktop selector/second-PC upgrade and live Claude remain unverified.
 - [ ] Native optional Bun development audit needs an upstream lockfile; zero runtime dependencies were added.
+
+# Weekly foundation stabilization
+
+- [x] Pin and inventory weekly-research-rebuild at 96e3aa9.
+- [x] Reproduce startup SyntaxError and remove corrupted duplicate coordinator.
+- [x] Guard exact identities, durable application events and mailbox provenance.
+- [x] Preserve manual corrections, exports, partial source evidence and quote validation.
+- [x] Restore cached private anonymous brief; keep original private request out of web context.
+- [x] Separate fresh/revisited leads and expose source-backed terms and qualitative priority.
+- [x] Run current offline regressions, DOM fixtures and attributed LinkedIn tests.
+- [ ] Real loopback integration and browser visual QA in an unrestricted local test environment.
+- [ ] Live model/source-quality verification: intentionally not run.
+- [x] Owner approval received for publication only to `codex/weekly-research-rebuild`.
+- [ ] Main merge or stable release: not requested.
+
+Evidence and remaining work: [foundation audit](../docs/FOUNDATION_AUDIT.md).
+Historical tasks above do not override the current contract.
+

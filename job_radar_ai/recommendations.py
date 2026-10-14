@@ -4,7 +4,7 @@ import json
 from .hunter import profile_signature, source_context
 from .store import now
 
-POLICY = 'v5.2'
+POLICY = 'weekly-foundation-v1'
 PRIORITIES = {'exceptional': 4, 'strong': 3, 'consider': 2, 'weak': 1, 'unsuitable': 0}
 TASK = '''Assess EVERY supplied exact vacancy identity against the actual CV and authoritative
 next-career request. Career suitability and evidence confidence are separate. Strong preliminary
@@ -29,6 +29,14 @@ an estimate. For Dutch roles, report employer ruling support only if explicitly 
 by the posting. Personal tax eligibility is ALWAYS unverified and must not be inferred.
 Company brand or nominal Manager/Architect title is not a proxy for seniority or relevance.
 Never fill Recommended with weak matches merely to reach a target count.'''
+TASK += ''' Return authority, tradeoffs, work_arrangement, salary_evidence,
+hours_evidence, ruling_employer_support, ruling_quote and ruling_eligibility.
+Use empty strings for unknown terms. Salary, hours and work_arrangement must be
+SHORT exact source quotations, not estimates. Ruling support means explicit
+employer assistance: merely mentioning the scheme is insufficient. Use
+not_supported for an explicit refusal, unknown otherwise, and copy ruling_quote
+verbatim for either supported or not_supported. Show personal eligibility as
+unverified. Authority is a cautious assessment supported by the evidence pairs.'''
 
 
 
@@ -42,7 +50,8 @@ def active(job):
 def evidence_text(job):
     # A source quote can be taken from either a publisher description or its
     # separately observed snippet. Both have immutable provenance.
-    return '\n'.join(filter(None, [job.get('description', '')] +
+    return '\n'.join(filter(None, [job.get('description', ''),
+        (job.get('partial_source_text') or {}).get('text', '')] +
         [o.get('text', '') for o in job.get('source_observations', [])]))
 
 
@@ -68,13 +77,13 @@ def prepare(item, job, profile, feedback):
             raise ValueError('Career assessment source quote is not observed evidence.')
         if not exact_quote(quote['cv_quote'],profile.get('cv_text', '')):
             raise ValueError('Career assessment CV quote is not verbatim evidence.')
-    for quote_field in ('salary_evidence','hours_evidence'):
+    for quote_field in ('salary_evidence','hours_evidence','work_arrangement','ruling_quote'):
         if item.get(quote_field) and not exact_quote(item[quote_field],evidence_text(job)):
             item = {**item,quote_field:''}
-    if item.get('ruling_employer_support') == 'stated':
-        source = evidence_text(job).casefold()
-        if 'ruling' not in source and '30%' not in source and '30 percent' not in source:
-            item = {**item, 'ruling_employer_support':'unknown'}
+    if item.get('ruling_employer_support') in ('stated','not_supported') and not item.get('ruling_quote'):
+        item = {**item, 'ruling_employer_support':'unknown'}
+    if item.get('ruling_eligibility') != 'not_applicable':
+        item = {**item, 'ruling_eligibility':'unverified'}
     result = {**item, 'policy': POLICY, 'at': now(), 'signature': signature(job, profile, feedback), 'market_id': profile.get('market', {}).get('id') if feedback else None}
     result['recommend'] = bool(item['recommend'] and item['priority'] in ('exceptional', 'strong')
                                and item['category'] not in ('unrelated', 'needs_verification')
@@ -96,6 +105,7 @@ def context(job):
     # against the full stored observations.
     return {**source_context(job),
             'description': (job.get('description') or '')[:9000],
+            'partial_source_text': (job.get('partial_source_text') or {}).get('text', '')[:3000],
             'source_observations': [{'url':o.get('url',''),'text':o.get('text','')[:1600]}
                                     for o in job.get('source_observations',[])[:2]],
             'evidence_confidence': 'full_source' if job.get('description_source', {}).get('kind') in ('public_verified', 'linkedin') and job.get('description') else 'user_supplied' if job.get('description') else 'partial_source' if job.get('partial_source_text') else 'snippet',
@@ -136,15 +146,16 @@ def assess(ai, store, jobs, profile, feedback, **kwargs):
                 # Only this vacancy becomes unassessed. Do NOT relax quotation
                 # provenance and do NOT call AI again automatically.
                 store.upsert_job({'id':job['id'],
+                                  'preliminary':{**job.get('preliminary', {}), 'recommend':False},
                                   'evaluation_status':'needs_verification',
                                   'assessment_issue':'Source/CV evidence needs verification.'})
                 rejected+=1
                 continue
             update={'id':job['id'],'preliminary':decision,
                     'assessment_issue':''}
-            if not job.get('description'):
-                update['evaluation_status']='preliminary'
+            update['evaluation_status']='assessed' if job.get('description') else 'preliminary'
             store.upsert_job(update)
             valid+=1
     return {'ai_invocations':calls,'assessed':valid,'invalid_evidence':rejected,
             'cached':len(jobs)-len(pending)}
+

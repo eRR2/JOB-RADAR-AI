@@ -25,7 +25,7 @@ class ScriptedAI:
         if kind=='evaluation':
             return {'evaluations':[assessment(j['id']) for j in context['jobs']],'report':'Synthetic evidence-backed review'}
         if kind=='research':
-            return {'jobs':[{'url':'https://example.invalid/jobs/1','title':'Invented','company':'Synthetic','location':'Example',
+            return {'jobs':[{'url':'https://example.invalid/jobs/1','employer_url':'','title':'Invented','company':'Synthetic','location':'Example',
                              'requisition_id':'','description':'Lead systems team','evidence_quote':'Lead systems team'}],
                     'limitations':[],'summary':'Model claims are not retrieval evidence'}
         raise AssertionError(kind)
@@ -41,11 +41,11 @@ class ScriptedSource:
 
 
 class OrchestrationTests(unittest.TestCase):
-    def run_hunter(self,source,ai,budgets=None):
+    def run_hunter(self,source,ai,budgets=None,secondary=True):
         temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
         store=Store(Path(temporary.name)/'state.sqlite3')
         store.set('profile',{'provider':'codex','cv_text':'Led a systems team','weights':{k:1 for k in WEIGHTS},
-                             'hard_requirements':'','secondary':True,'consent':True,'linkedin_consent':True})
+                             'hard_requirements':'','secondary':secondary,'consent':True,'linkedin_consent':True})
         store.set('budgets',budgets or {'searches':2,'pages':1,'details':1,'requests':3,'spacing':5})
         run=store.start_run('codex');Hunter(Path(temporary.name),store).execute(run,threading.Event(),ai=ai,source=source)
         return store
@@ -73,7 +73,7 @@ class OrchestrationTests(unittest.TestCase):
         class AI(ScriptedAI):
             def run(self,kind,task,context,**options):
                 if kind=='research':
-                    return {'jobs':[{'url':URL,'title':'Systems Lead','company':'Synthetic Employer','location':'Berlin, Germany',
+                    return {'jobs':[{'url':URL,'employer_url':'','title':'Systems Lead','company':'Synthetic Employer','location':'Berlin, Germany',
                                     'requisition_id':'REQ-42','description':'Model-generated false responsibilities','evidence_quote':'Lead systems team'}],
                             'limitations':[],'summary':'Source locator only'}
                 return super().run(kind,task,context,**options)
@@ -99,7 +99,8 @@ class OrchestrationTests(unittest.TestCase):
     def test_valid_empty_search_finishes_without_fabricated_jobs(self):
         class Source(ScriptedSource):
             def search(self,query,page):return []
-        store=self.run_hunter(Source(),ScriptedAI())
+        store=self.run_hunter(Source(),ScriptedAI(),secondary=False)
         self.assertEqual(store.jobs(),[])
         self.assertEqual(store.runs()[0]['status'],'completed')
         self.assertEqual(store.runs()[0]['payload']['evaluated'],0)
+

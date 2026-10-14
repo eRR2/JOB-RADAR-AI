@@ -32,6 +32,7 @@ class FixtureFetcher:
     def __init__(self, store, pages):
         self.store, self.pages = store, pages
         self.requests = self.cache_hits = 0
+        self.budget = 16  # Match the bounded public-fetcher contract in orchestration fixtures.
 
     def get(self, url, **kwargs):
         self.requests += 1
@@ -302,3 +303,4 @@ class PublicSourceTests(unittest.TestCase):
             conn.return_value.getresponse.return_value.status=403
             with self.assertRaises(RetrievalError) as error:request_public(URL)
             self.assertEqual(error.exception.status,'blocked')
+

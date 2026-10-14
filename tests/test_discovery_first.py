@@ -30,7 +30,8 @@ class DiscoveryFirstTests(unittest.TestCase):
         self.assertLess(max(discoveries),stages.index('priority_v52'))
         self.assertEqual({c['market']['id'] for k,_,c,_ in ai.calls if k=='research_v5'},{'DE','NL'})
         self.assertNotIn('session_strategy',stages)
-        self.assertNotIn('session_brief',stages)
+        self.assertEqual(stages.count('session_brief'),1)
+        self.assertLess(stages.index('session_brief'),min(discoveries))
         self.assertGreater(payload['diagnostics']['counts']['duplicates'],0)
 
     def test_selected_market_only_and_start_forwards_selection(self):
@@ -124,7 +125,7 @@ class DiscoveryFirstTests(unittest.TestCase):
         self.store.set('profile',profile)
         class FailedAI(ScriptedAI):
             def run(inner,kind,task,context,**opts):
-                self.assertEqual(kind,'research_v5')
+                self.assertEqual(kind,'session_brief')
                 self.assertEqual(len(self.store.jobs()),1)
                 inner.telemetry={'cli_started':True,'event_count':2,'event_types':{'thread.started':1,'turn.started':1}}
                 raise ProviderError('CLI execution failed.','execution_error')
@@ -145,3 +146,4 @@ class DiscoveryFirstTests(unittest.TestCase):
         self.assertEqual({q['query'] for q in de['linkedin_queries']},{'Systems ownership','Technical leadership'})
         self.assertIn('Architecture team leadership',{q['query'] for q in nl['linkedin_queries']})
         for m,p in zip(profile['markets'],plan['markets']):self.assertEqual({q['location'] for q in p['linkedin_queries']},set(query_locations(m)))
+

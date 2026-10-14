@@ -1,70 +1,94 @@
-# JOB-RADAR AI — clean search
+# JOB-RADAR AI — weekly career research
 
-CV + your original career goals → Search with AI → LinkedIn-first research →
-Recommended / All Opportunities. A private Windows browser application using your
-own separately authenticated Codex or Claude Code subscription CLI. No API-key
-fallback, hosted database, automatic applications or system-wide runtime installation.
+A private Windows browser workspace for finding credible next-career opportunities
+from demonstrated experience and the user's original goals. Subscription Codex or
+Claude Code CLIs provide analysis; Python validates evidence, protects source access
+and persists history. No API-key fallback or automatic applications.
 
-Development branch: [codex/clean-search-simplification](https://github.com/eRR2/JOB-RADAR-AI/tree/codex/clean-search-simplification).
-Main remains V1; this preview is not a stable Release. The second-PC installation is unchanged.
+Development branch: `codex/weekly-research-rebuild`. Main remains the existing
+release. This branch is a preview, not a verified stable release.
 
-## Use
+## Current workflow
 
-Invoke the bundled `$job-radar-ai` skill in a reviewed local checkout. Codex launches
-the same private loopback dashboard; no VS Code or manual CMD/Python command is needed.
-Missing pinned private runtime or CLI downloads still require your approval.
-Desktop sign-in does not prove the separate CLI is authenticated or inference works.
-See [installation](docs/INSTALL_CODEX_DESKTOP.md).
+Upload a readable PDF/DOCX CV, describe the next move and explicitly allow private
+AI processing and anonymous public research. Direct LinkedIn guest requests require
+separate consent. The existing private-runtime launcher is documented in
+[installation](docs/INSTALL_CODEX_DESKTOP.md).
 
-Upload a text PDF/DOCX CV and describe your next move in one text field, including
-geographic and employment preferences. Search with AI interprets changed input internally;
-there is no understanding-approval screen. Unchanged confirmed intent is reused.
+The current coordinator is `SessionSearch`:
 
-Every new search creates a verified local backup, then clears previous jobs, descriptions,
-assessments, queries, queues, caches, reports, run histories and job-specific application
-states. Only CV/background, original career text, preferences, learned knowledge and relevant
-explicit feedback survive. Genuine active publisher restrictions remain separate and protected.
-Old workers cannot write into the replacement session. Existing pre-simplification results
-are cleared once when this preview is first opened; they remain in the verified private backup.
+1. Start a verified, backed-up search session while preserving durable history.
+2. Use explicit role intent for transport seeds; create or reuse a private anonymous
+   capability brief before public web research. Raw career text and CV experience
+   records do not enter web-enabled inference.
+3. Discover actual observed vacancies using indexed LinkedIn, public web and employer
+   publications. Source access failures remain uncertainty, not proof of closure.
+4. Match exact employer requisitions, source identities and normalized URLs. Matching
+   without IDs requires corroborating employer, title, location and substantial content.
+5. Exclude already applied/rejected exact vacancies from expensive review. Privately
+   triage other candidates before bounded description enrichment and assessment.
+6. Show fresh credible recommendations first, with a short separate section for
+   previously found opportunities. All Opportunities retains other discoveries.
 
-Recommended presents strong AI-supported next-step decisions first. Title similarity and
-transferable skills alone do not establish suitability. Critical specialist gaps remain
-explicit; weak roles are not promoted to fill the view. Full and preliminary source evidence
-are visibly distinct. All Opportunities contains every genuine discovery in the current
-session. Availability remains **Güncellik doğrulanmadı** without positive publisher evidence.
+Every recommendation explains fit, gaps, technical versus disciplinary authority and
+trade-offs. Qualitative priority is separate from evidence completeness. Salary, hours
+and workplace terms require literal source evidence. Employer ruling support requires
+a source quotation; personal tax eligibility remains unverified. Salary, title and
+location preferences do not impose universal hard exclusions.
 
-Real native source text is reused locally. Exact matching guards against attaching a different
-posting's description. Missing full descriptions do not automatically exclude strong candidates.
-No individual AI description-locating loop, separate ATS report, application tracker,
-Obsolete control, Promising tab, automatic schedule or technical search-control panel.
+Current results, query caches and run diagnostics are disposable. CV/goals, explicit
+feedback, vacancy identities, saved/application/rejection decisions, event timelines
+and imported mailbox evidence survive searches. Same-company different roles remain
+independent. Manual corrections are not overwritten by repeated mailbox imports.
 
-## Execution and verification
+## Outlook evidence
 
-Research uses an anonymous background; raw CV and private feedback enter private inference
-only. Current-session duplicate/query context and cached source failures prevent repeat work.
-Changed evidence may be reassessed; unchanged evidence is assessed once. Private calls are
-bounded to 60 seconds, web research to 90 seconds, with a five-minute outer safety window.
-No automatic retry or provider fallback. Research stops when useful avenues or novelty run out;
-response batch size is not a total job limit. Source restrictions and robots rules are respected.
+The application currently imports a user-selected read-only JSON export from the
+Outlook **Job Radar** folder. It does not connect to Outlook automatically, send mail
+or execute email instructions. Ambiguous evidence remains unresolved. Requisition
+matches require corroborating employer text. This conservative matcher is a baseline,
+not a complete multilingual mailbox parser.
 
-Focused offline checks:
+## Offline verification
+
+Run the full Python suite from the repository:
 
 ```powershell
-.venv\Scripts\python.exe -m unittest discover -s tests -p test_clean_search.py -v
-.venv\Scripts\python.exe -m unittest discover -s tests -p test_clean_http.py -v
+python -m unittest discover -s tests -v
 node --test tests/web_clean.test.cjs
 node --check web/app.js
-.venv\Scripts\python.exe scripts/check_privacy.py
+python -m compileall -q job_radar_ai scripts tests
+python scripts/check_privacy.py
 ```
 
-Historical tests/modules remain as references for earlier branch behavior. Current UI
-acceptance is `web_clean.test.cjs`, replacing the earlier multi-tab UI expectations.
-No hundreds-of-tests campaign or live subscription research was used for this simplification.
-Measured behavior, preserved data and limitations: [clean-search acceptance](docs/CLEAN_SEARCH.md).
+Run the attributed LinkedIn integration from its own directory with Bun on PATH:
 
-## License and privacy
+```powershell
+Set-Location integrations/linkedin/cli
+bun test --timeout 30000
+```
 
-MIT. Attributed LinkedIn integration remains available in the repository; no
-`linkedin-jobs-api` dependency was added. CV, database, reports, verification copies,
-backups, runtime and provider session files stay outside Git under `.private/` or
-existing user-owned CLI storage. Source pages receive no CV or profile content.
+Current foundation checks are `test_imports.py`, `test_foundation.py`,
+`test_research_privacy.py`, `test_http_offline.py`, `test_weekly_method.py`,
+`test_clean_search.py` and `test_discovery_first.py`.
+In-memory HTTP tests supplement real loopback tests; DOM fixtures do not prove visual
+browser behavior. Earlier UI tests describe superseded multi-tab contracts and remain
+visible as historical material.
+
+Findings, exact verification outcomes, remaining architectural issues and release
+limits: [foundation audit](docs/FOUNDATION_AUDIT.md). No live AI or publisher research
+was used for this stabilization. Do not interpret offline passes as proof of live
+model quality, source availability or a clean second-PC installation.
+
+## Scope and privacy
+
+One loopback process, local SQLite, native browser UI and bounded CLI/source workers.
+No added framework, cloud backend, arbitrary model shell commands, automatic retries,
+provider fallback, automatic schedule or individual per-job AI description loop.
+Active robots/authentication/explicit publisher denials and unexpired publisher
+Retry-After restrictions survive sessions.
+
+MIT attribution is preserved. Private data, runtime, backups and verification fixtures
+stay outside Git under `.private/`; provider-owned authentication remains with the
+provider. A stable release or GitHub write requires an explicit owner request.
+

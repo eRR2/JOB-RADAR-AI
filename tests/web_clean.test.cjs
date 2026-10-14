@@ -74,3 +74,21 @@ test('direct LinkedIn permission is explicit, defaults off and is submitted by t
   input.checked=true;nodes(page).find(n=>n.tag==='button'&&n.text==='Search with AI').handlers.click();
   assert.equal(run('sent.linkedin_consent'),true);
 });
+
+test('weekly report separates rediscoveries and displays source terms and priority',()=>{
+  const {run}=fixture();run(`state.jobs=[
+    {id:'fresh',title:'Fresh role',url:'https://example.org/fresh',preliminary:{recommend:true,priority:'strong',critical_gap:false,next_step:'Own systems',salary_evidence:'EUR 100,000',hours_evidence:'35 hours per week',work_arrangement:'Hybrid: two days onsite',tradeoffs:'Relocation required',authority:'Technical architecture decisions',ruling_employer_support:'unknown'}},
+    {id:'seen',title:'Seen role',url:'https://example.org/seen',previously_seen:true,preliminary:{recommend:true,priority:'strong',critical_gap:false,next_step:'Prior credible opportunity'}}];`);
+  const page=run('discover()');
+  const cards=nodes(page).filter(n=>n.tag==='article'&&n.className==='job-card');
+  assert.equal(cards.length,1);assert.match(cards[0].text,/Fresh role/);
+  assert.match(page.text,/Previously found/);assert.match(page.text,/Seen role/);
+  assert.match(cards[0].text,/EUR 100,000/);assert.match(cards[0].text,/35 hours per week/);
+  assert.match(cards[0].text,/Hybrid: two days onsite/);assert.match(cards[0].text,/Priority: strong/);
+});
+
+test('invalidated evidence cannot keep a recommendation visible',()=>{
+  const {run}=fixture();run(`const invalid={preliminary:{recommend:true,priority:'strong'},evaluation_status:'needs_verification'};`);
+  assert.equal(run('recommended(invalid)'),false);
+});
+

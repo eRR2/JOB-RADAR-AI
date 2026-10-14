@@ -7,7 +7,7 @@ from contextlib import contextmanager, closing
 from datetime import datetime, timezone
 from pathlib import Path
 from .markets import country_of, migrated_profile, defaults
-from .history import create_history_table, match_history, keep_history, historical_opportunities
+from .history import create_history_table, match_history, keep_history, historical_opportunities, keep_application_event
 
 
 def now():
@@ -151,10 +151,13 @@ class Store:
             for r in db.execute('SELECT id,payload,last_seen,application_status FROM jobs').fetchall():
                 job = json.loads(r['payload'])
                 job['id'] = r['id']
-                status = r['application_status']
-                keep_history(db,job,r['last_seen'],
-                             status=status if status not in ('none','saved') else None,
-                             source='manual' if status not in ('none','saved') else None)
+                found = match_history(db, job)
+                saved = keep_history(db, job, r['last_seen'],
+                                     status=r['application_status'],
+                                     source=found['status_source'] if found else 'manual')
+                for event in db.execute('SELECT * FROM application_events WHERE job_id=? ORDER BY id', (r['id'],)):
+                    key = 'manual:' + str(settings.get('search_session', 'legacy')) + ':' + str(event['id'])
+                    keep_application_event(db, saved['identity'], r['id'], event['status'], event['at'], 'manual', key)
             token = secrets.token_hex(16)
             knowledge['search_session'] = token
             for table in ('market_evaluations','job_markets','feedback_scopes','observations','feedback','application_events','jobs','runs','cache','settings'):
@@ -217,7 +220,7 @@ class Store:
             changed=bool(old and any(merged.get(key)!=old_payload.get(key) for key in ('description','title','company','location','availability')))
             carried_status = historical['application_status'] if historical else 'none'
             mail_status = None
-            if old is None and carried_status in ('none','saved'):
+            if old is None and carried_status in ('none','saved') and (not historical or historical['status_source']!='manual'):
                 from .outlook_history import recorded_decision_for
                 mail_status = recorded_decision_for(db,merged)
                 if mail_status:
@@ -243,12 +246,19 @@ class Store:
             scopes = dict(db.execute('SELECT feedback_id,scope FROM feedback_scopes').fetchall())
             market_rows = db.execute('SELECT * FROM market_evaluations').fetchall()
             memberships = db.execute('SELECT * FROM job_markets').fetchall()
+            durable = {}
+            for row in rows:
+                history = match_history(db, json.loads(row['payload']))
+                if history:
+                    durable[row['id']] = [dict(e) for e in db.execute(
+                        'SELECT job_id,status,at,source,event_key FROM history_application_events WHERE identity=? ORDER BY rowid',
+                        (history['identity'],))]
         result = []
         for row in rows:
             job = json.loads(row['payload'])
             job.update({k: row[k] for k in ('first_seen', 'last_seen', 'application_status')})
             job['evaluation'] = json.loads(row['evaluation']) if row['evaluation'] else None
-            job['events'] = [dict(e) for e in events if e['job_id'] == row['id']]
+            job['events'] = durable.get(row['id']) or [dict(e) for e in events if e['job_id'] == row['id']]
             job['feedback'] = [{**dict(f), 'scope':scopes.get(f['id'],'unclassified'), 'reasons': json.loads(f['reasons'])} for f in feedback if f['job_id'] == row['id']]
             job['market_ids'] = [m['market_id'] for m in memberships if m['job_id']==row['id']]
             job['market_evaluations'] = {m['market_id']:{'evaluation':json.loads(m['evaluation']),'content_stale':bool(m['content_stale'])} for m in market_rows if m['job_id']==row['id']}
@@ -281,9 +291,13 @@ class Store:
                 raise ValueError('Unknown job identity.')
             if row[0] != status:
                 db.execute('UPDATE jobs SET application_status=? WHERE id=?', (status, job_id))
-                db.execute('INSERT INTO application_events(job_id,status,at) VALUES (?,?,?)', (job_id, status, now()))
+                timestamp = now()
+                event = db.execute('INSERT INTO application_events(job_id,status,at) VALUES (?,?,?)', (job_id, status, timestamp))
                 stored = db.execute('SELECT payload FROM jobs WHERE id=?',(job_id,)).fetchone()
-                keep_history(db,json.loads(stored['payload']),now(),status=status,source='manual')
+                history = keep_history(db,json.loads(stored['payload']),timestamp,status=status,source='manual')
+                session = db.execute("SELECT value FROM settings WHERE key='search_session'").fetchone()
+                key = 'manual:' + str(json.loads(session[0]) if session else 'legacy') + ':' + str(event.lastrowid)
+                keep_application_event(db, history['identity'], job_id, status, timestamp, 'manual', key)
 
     def add_feedback(self, job_id, kind, reasons, note, scope=None):
         if kind not in ('like', 'dislike', 'irrelevant') or not isinstance(reasons, list) or len(reasons) > 10 or any(not isinstance(r, str) or len(r) > 100 for r in reasons) or not isinstance(note, str) or len(note) > 1000:
@@ -369,9 +383,15 @@ class Store:
 
     def export(self):
         profile=self.get('profile')
+        with self.db() as db:
+            history = [{**dict(r), 'payload':json.loads(r['payload'])} for r in db.execute('SELECT * FROM job_history ORDER BY first_seen,identity')]
+            mail = [{**dict(r), 'payload':json.loads(r['payload'])} for r in db.execute('SELECT * FROM outlook_evidence ORDER BY received_at,evidence_id')]
+            events = [dict(r) for r in db.execute('SELECT * FROM history_application_events ORDER BY rowid')]
         return {'profile':profile, 'learned':self.get('learned', []), 'global_learned':self.get('learned:global',[]),
                 'market_learning':{m['id']:self.get('learned:'+m['id'],[]) for m in (profile or {}).get('markets',[])},
-                'jobs':self.jobs(), 'feedback':self.feedback(), 'runs':self.runs()}
+                'jobs':self.jobs(), 'feedback':self.feedback(), 'runs':self.runs(),
+                'job_history':history, 'outlook_evidence':mail, 'application_history':events,
+                'persistent_feedback':self.get('persistent_feedback', [])}
 
     def backup(self, destination):
         backup=sqlite3.connect(destination)
@@ -385,7 +405,8 @@ class Store:
         with self.db() as db:
             if not db.in_transaction:db.execute('BEGIN IMMEDIATE')
             db.execute('PRAGMA secure_delete=ON')
-            for table in ('market_evaluations','job_markets','feedback_scopes','observations', 'feedback', 'application_events', 'jobs', 'runs', 'cache', 'settings', 'job_history', 'outlook_evidence'):
+            for table in ('market_evaluations','job_markets','feedback_scopes','observations', 'feedback', 'application_events', 'jobs', 'runs', 'cache', 'settings', 'history_application_events', 'job_history', 'outlook_evidence'):
                 db.execute('DELETE FROM ' + table)
         with self.db() as db:
             db.execute('VACUUM')
+

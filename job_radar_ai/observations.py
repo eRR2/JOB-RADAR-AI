@@ -34,6 +34,9 @@ def observed_job(candidate, observations, rejected=None):
             'evidence':'Observed by Codex web tool; indexed evidence does not prove vacancy openness.',
             'source_observations':[{'url':o['url'],'text':'\n'.join(str(o[k]) for k in ('title','snippet','text','content') if o.get(k)),'kind':'web_tool_observation','at':now()} for o in sources],
             'description_status':'not_attempted','evaluation_status':'preliminary_pending'}
+    requisition=candidate.get('requisition_id','').strip()
+    if requisition and re.search(r'(?<!\w)'+re.escape(requisition)+r'(?!\w)',text,re.I):
+        job['requisition_id']=requisition
     inferred=candidate.get('geography_inference',{})
     read_text='\n'.join(o.get('text') or o.get('content','') for o in sources if o.get('observation_kind')=='page_read')
     if read_text.strip():
@@ -41,3 +44,4 @@ def observed_job(candidate, observations, rejected=None):
     if not country and job['location'] and inferred.get('basis')=='city_country_mapping' and inferred.get('confidence')=='strong' and re.fullmatch('[A-Z]{2}',inferred.get('country_id','')):
         job['geography']={'status':'inferred','country_id':inferred['country_id'],'basis':'ai_city_country_mapping','evidence':job['location'],'explanation':inferred.get('explanation','')}
     return job
+

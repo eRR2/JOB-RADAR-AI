@@ -70,6 +70,9 @@ SCHEMAS['priority_v52']['properties']['assessments']['items']['properties'].upda
     'work_arrangement': string(900),
     'salary_evidence': string(900),
     'hours_evidence': string(900),
-    'ruling_employer_support': enum('stated','not_stated','unknown'),
+    'ruling_employer_support': enum('stated','not_supported','not_stated','unknown'),
+    'ruling_quote': string(900),
     'ruling_eligibility': enum('unverified','not_applicable'),
 })
+SCHEMAS['research_v5']['properties']['jobs']['items']['properties']['requisition_id'] = string(200)
+

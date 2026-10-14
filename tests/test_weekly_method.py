@@ -28,6 +28,7 @@ class HistoricalIdentityTests(unittest.TestCase):
            'company':'Company A','location':'City A'}
         b={'url':'https://careers.example.com/job/120','title':'Senior Architect',
            'company':'Company A','location':'City A','requisition_id':'120'}
+        a['description']=b['description']='Own electrical system architecture, hardware/software integration, requirements and safety decisions across the complete system development lifecycle.'
         self.assertTrue(same_posting(a,b))
         b['location']='Different City'
         self.assertFalse(same_posting(a,b))
@@ -88,3 +89,4 @@ class HistoricalStorageTests(unittest.TestCase):
 
 if __name__=='__main__':
     unittest.main()
+
