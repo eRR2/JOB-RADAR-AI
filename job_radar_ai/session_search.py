@@ -336,13 +336,31 @@ class SessionSearch(Hunter):
                 raise ProviderError('Indexed discovery failed: '+'; '.join(f['country']+': '+f['reason'] for f in d['failures'])+'. No automatic retry.','discovery_failed')
             phase('enrichment')
             jobs=self.store.jobs()
+            shortlisted=set()
             for start in range(0,len(jobs),40):
                 if not available():payload['warnings'].append('Enrichment phase budget reached.');break
                 batch=jobs[start:start+40]
-                selection=call('enrichment',ENRICH,{'profile':private_profile(profile),'background':brief,'jobs':[context(j) for j in batch]})
+                # Triage uses compact verified snippets, not every entire source
+                # observation from every model web search.
+                lean=[{'id':j['id'],'title':j.get('title',''),'company':j.get('company',''),
+                       'location':j.get('location',''),'country':j.get('country',''),
+                       'workplace':j.get('workplace',''),
+                       'source_excerpt':(j.get('description') or ' '.join(
+                            x.get('text','') for x in j.get('source_observations',[])[:2]))[:1050]}
+                      for j in batch]
+                selection=call('enrichment',ENRICH,
+                               {'profile':private_profile(profile),'background':brief,'jobs':lean})
                 validate('enrichment',selection)
                 chosen=selection['candidate_ids'];by_id={j['id']:j for j in batch}
                 if len(set(chosen))!=len(chosen) or not set(chosen)<=set(by_id):raise ValueError('Enrichment selection identity mismatch.')
+                shortlisted.update(chosen)
+                for considered in batch:
+                    self.store.upsert_job({'id':considered['id'],
+                        'shortlist_status':'selected' if considered['id'] in chosen else 'low_relevance'})
+                d.setdefault('triage',{'selected':0,'low_relevance':0})
+                d['triage']['selected']+=len(chosen)
+                d['triage']['low_relevance']+=len(batch)-len(chosen)
+                progress('Shortlisted credible candidates · '+str(len(shortlisted)))
                 for job_id in chosen:
                     if not available():break
                     job=by_id[job_id];d['country']=job.get('country','') or 'Location unverified'
@@ -380,7 +398,7 @@ class SessionSearch(Hunter):
                             'availability':'closed_banner_observed' if state['status']=='confirmed_closed' else 'open_publisher_observed' if state['status']=='confirmed_open' else 'unknown'})
                     progress('Candidate source enrichment recorded')
             phase('evaluation')
-            jobs=self.store.jobs();groups=[]
+            jobs=[j for j in self.store.jobs() if j['id'] in shortlisted];groups=[]
             for m in markets:
                 for verified in (True,False):
                     groups.append((m,verified,[j for j in jobs if geography(j,all_markets)['country_id']==m['id'] and (country_of(j,all_markets)==m['id'])==verified]))
@@ -395,9 +413,24 @@ class SessionSearch(Hunter):
                 scoped=market_profile(profile,m,self.store) if m else {**profile,'authoritative_request':profile.get('looking_for','')}
                 scoped['learned_preferences']=(self.store.get('learned:'+m['id'],[]) if verified else [])+global_learning
                 feedback=[f for f in self.store.get('persistent_feedback',[]) if f['country'] in (m['id'],'global')] if verified else []
-                stats=assess(PrivateCalls(),self.store,group,scoped,feedback)
-                payload['usage']['cached_assessments']+=stats['cached'];progress('Batched career suitability saved · '+d['country'])
+                try:
+                    stats=assess(PrivateCalls(),self.store,group,scoped,feedback)
+                    payload['usage']['cached_assessments']+=stats['cached']
+                    d.setdefault('evaluation_quality',{'valid':0,'needs_verification':0})
+                    d['evaluation_quality']['valid']+=stats['assessed']
+                    d['evaluation_quality']['needs_verification']+=stats.get('invalid_evidence',0)
+                except (ValueError,ProviderError) as exc:
+                    # Validation mistakes cannot erase independent groups.
+                    d.setdefault('failures',[]).append({'phase':'evaluation',
+                        'country':d['country'],'reason':getattr(exc,'category','validation_error'),
+                        'stage':'Batch withheld; valid earlier groups retained'})
+                    payload['warnings'].append('Evaluation incomplete for '+d['country'])
+                    if getattr(exc,'category','') in ('subscription_usage_limit','model_access','provider_rate_limit'):
+                        break
+                progress('Batched career suitability saved · '+d['country'])
             d['completed_phases'].append('evaluation')
+            if not shortlisted and self.store.jobs():
+                payload['warnings'].append('No vacancies passed evidence-aware career triage; research findings remain available.')
             status='canceled' if cancel.is_set() else 'partial' if payload['warnings'] else 'completed'
             d['stop']={'phase':d['phase'],'reason':'canceled' if cancel.is_set() else 'completed_with_limitations' if payload['warnings'] else 'completed'}
         except SessionExpired:return
