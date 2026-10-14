@@ -79,7 +79,9 @@ def initial_plan(profile,markets,brief=None):
         values=[p.get('value','') for p in entries
                 if p.get('topic') in ('target_roles','role_families','career_direction','management_progression')
                 and p.get('scope','') in ('',market['id']) and p.get('origin') in ('explicit','cv_evidenced')]
-        values += [(brief or {}).get('direction',''), intent.get('summary',''), profile.get('looking_for','')]
+        if not values:
+            values=[(brief or {}).get('direction',''),intent.get('summary',''),
+                    profile.get('looking_for','')]
         terms=[]
         places={place for m in profile['markets'] for place in [m['country'],*m['locations']]}
         for value in values:
