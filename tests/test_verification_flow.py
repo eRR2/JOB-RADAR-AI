@@ -56,8 +56,8 @@ class VerificationFlowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);store=Store(root/'state.sqlite3',v5=True)
             store.set('profile',{**copy.deepcopy(PROFILE),'markets':PROFILE['markets'][:1]})
-            def public_id(n):return 'web:'+hashlib.sha256(('https://employer.example/jobs/'+str(n)).encode()).hexdigest()[:24]
             class RankedAI(ScriptedAI):
+                def __init__(self):super().__init__();self.ranked=[];self.triaged=set()
                 def run(self,kind,task,data,**kwargs):
                     if kind=='research_v5':
                         self.calls.append((kind,task,data,kwargs));jobs=[{**candidate(123456+i),'url':'https://employer.example/jobs/'+str(123456+i)} for i in range(73)]
@@ -66,7 +66,12 @@ class VerificationFlowTests(unittest.TestCase):
                         return dict(jobs=jobs,summary='Synthetic',limitations=[],continue_research=True,next_avenues=['Unneeded broader discovery'])
                     if kind=='enrichment':
                         self.calls.append((kind,task,data,kwargs));self.telemetry={}
-                        return dict(candidate_ids=[public_id(123528),public_id(123456)],reason='Source duties support these next steps, ordered by fit')
+                        self.triaged.update(j['id'] for j in data['jobs'])
+                        # A bounded provider sees only this packet. Its declared
+                        # order still must control verification, never ID order.
+                        chosen=[j['id'] for j in data['jobs'][:2]][::-1] if not self.ranked else []
+                        if chosen:self.ranked=chosen
+                        return dict(candidate_ids=chosen,reason='Source duties support these next steps, ordered by fit')
                     if kind=='priority_v52':
                         self.calls.append((kind,task,data,kwargs));self.telemetry={}
                         return {'assessments':[decision(j['id']) for j in data['jobs']]}
@@ -74,7 +79,7 @@ class VerificationFlowTests(unittest.TestCase):
             ai=RankedAI();attempts=[]
             def recover(job,*args):
                 attempts.append(job['id'])
-                self.assertEqual(sum(k=='enrichment' for k,_,_,_ in ai.calls),1)
+                self.assertEqual(len(ai.triaged),73)
                 return dict(description=full_job()['description'],source_url=job['url'],evidence={'sha256':'synthetic'},title=job['title'],company=job['company'],location=job['location'])
             with patch('job_radar_ai.session_search.recover',side_effect=recover),patch('job_radar_ai.session_search.linkedin_state',return_value={'state':'available'}):
                 run=store.start_run('codex')
@@ -82,9 +87,12 @@ class VerificationFlowTests(unittest.TestCase):
                 SessionSearch(root,store).execute(run,threading.Event(),ai=ai,fetcher=fetcher)
             selected=[j for j in store.jobs() if j.get('shortlist_status')=='selected']
             self.assertEqual(len(selected),2)
+            self.assertEqual(len(store.jobs()),73)
+            self.assertEqual(len(ai.triaged),73)
+            self.assertTrue(all(len(data['jobs'])<=8 for kind,_,data,_ in ai.calls if kind=='enrichment'))
             self.assertEqual(sum(k=='research_v5' for k,_,_,_ in ai.calls),1)
-            self.assertEqual([j['id'] for j in sorted(selected,key=lambda j:j['shortlist_rank'])],[public_id(123528),public_id(123456)])
-            self.assertEqual(attempts,[public_id(123528),public_id(123456)])
+            self.assertEqual([j['id'] for j in sorted(selected,key=lambda j:j['shortlist_rank'])],ai.ranked)
+            self.assertEqual(attempts,ai.ranked)
 
     def test_verification_scheduler_only_batches_ready_candidates_within_context_bound(self):
         from job_radar_ai.verification import assessment_batches,ranked_candidates

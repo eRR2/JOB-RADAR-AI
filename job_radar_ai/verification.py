@@ -1,14 +1,25 @@
 """Bounded verification scheduling from AI order, never a career classifier."""
 import json
 from .recommendations import active,context,verified_description,exact_quote
+from .contracts import TRIAGE_MAX_JOBS,TRIAGE_TEXT_LIMITS
+
+TRIAGE_INPUT_CHARS=40000
+TRIAGE_OUTPUT_CHARS=14000
+
+
+def triage_output_size(jobs):
+    decisions=[{'job_id':j['id'],'action':'needs_evidence','basis':'observed_mismatch',
+        **{key:'x'*limit for key,limit in TRIAGE_TEXT_LIMITS.items()},
+        'missing_information':['x'*120]*2} for j in jobs]
+    return len(json.dumps({'candidate_ids':[j['id'] for j in jobs],'reason':'x'*300,'decisions':decisions}))
 
 
 def ranked_candidates(jobs):
     return sorted(jobs,key=lambda j:(j.get('shortlist_rank',10**9),j['id']))
 
 
-def triage_batches(jobs):
-    """One cheap global comparison when compact evidence fits the input bound."""
+def triage_batches(jobs,shared_chars=0):
+    """Bound both complete private input and the per-job decision response."""
     batch=[];size=0
     for job in jobs:
         item={'id':job['id'],'title':job.get('title',''),'company':job.get('company',''),
@@ -16,9 +27,9 @@ def triage_batches(jobs):
               'evidence_completeness':'full_source' if verified_description(job) else 'partial' if job.get('partial_source_text') else 'snippet',
               'source_excerpt':(job.get('description') or ' '.join(o.get('text','') for o in job.get('source_observations',[])[:2]))[:650]}
         length=len(json.dumps(item))
-        if batch and (len(batch)>=80 or size+length>40000):
+        if batch and (len(batch)>=TRIAGE_MAX_JOBS or shared_chars+size+length+2>TRIAGE_INPUT_CHARS or triage_output_size(batch+[item])>TRIAGE_OUTPUT_CHARS):
             yield batch;batch=[];size=0
-        batch.append(item);size+=length
+        batch.append(item);size+=length+2
     if batch:yield batch
 
 

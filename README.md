@@ -46,6 +46,11 @@ Publication-title hints
 for employer, locality and advertised compensation are labeled unverified and never
 replace canonical identity facts. An advertised salary ceiling is not guaranteed pay.
 An empty local application status is unverified until supported by a recorded decision.
+Triage uses at most eight candidates per call, with shared private input and expected
+decision output both bounded. A failed packet stays unassessed while other packets
+continue. Triage has a separate allowance inside enrichment so source verification
+retains time. Incomplete research is an unavailable assessment, not evidence of weak
+fit. Previously valid opportunities remain visible as historical findings.
 Triage retains an individual rationale, transferable capability, specialist gap and
 literal source evidence for every current decision. Missing or title-only evidence
 requires verification, not a low-relevance verdict. Application state suppresses a

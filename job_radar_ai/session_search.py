@@ -21,7 +21,7 @@ from .linkedin import LinkedIn, SourceError
 from .access import linkedin_state
 from .contracts import validate
 from .reporting import review_state, coverage
-from .verification import triage_batches, ranked_candidates, assessment_batches, triage_decisions
+from .verification import triage_batches, ranked_candidates, assessment_batches, triage_decisions,triage_output_size,TRIAGE_INPUT_CHARS
 from .availability import observation,merge_states
 
 PHASE_SECONDS = {'discovery':600,'enrichment':150,'evaluation':150}
@@ -48,6 +48,11 @@ Do not search with entire goal paragraphs or generic single-word titles.
 No private CV text, names, contacts or identifying history in public queries.
 Copy requisition_id only when an employer requisition is literally observed;
 do not substitute a LinkedIn listing ID for an employer requisition.'''
+RESEARCH += ''' Interpret the requested leadership progression together with the
+demonstrated technical background. Shared seniority or architecture titles do not
+establish transferability into a different core discipline; actual responsibilities
+must support that move. Preserve the user's technical scope without industry or
+title blacklists.'''
 RESEARCH += ''' Retain actually observed original employer posting URLs and alternate
 canonical job URLs in description_sources, with employer requisition when observed.
 A LinkedIn listing alone supplies no independent employer description access. Never
@@ -67,6 +72,11 @@ from a demonstrated mandatory specialist gap. Missing duties or uncertain expert
 must use needs_evidence, never low_relevance. Only an observed, quoted mismatch may
 use low_relevance. An application/rejection decision is workflow state, never evidence
 of technical irrelevance. candidate_ids orders candidates worth verifying.'''
+ENRICH += ''' Keep each reason under 300 characters, transferable fit and specialist
+gap under 200 each, literal quote under 240, and at most two missing facts under 120
+characters each. Judge the technical responsibility and leadership scope against the
+actual CV and requested next move. A senior title alone neither proves progression
+nor rules out transferable capability. No repetitive commentary.'''
 
 
 def initial_plan(profile,markets,brief=None):
@@ -83,7 +93,9 @@ def initial_plan(profile,markets,brief=None):
         places={place for m in profile['markets'] for place in [m['country'],*m['locations']]}
         for place in sorted(places,key=len,reverse=True):
             value=re.sub(r'(?<!\w)'+re.escape(place)+r'(?!\w)',' ',value,flags=re.I)
-        pieces=re.split(r'[,;/\n]|\s+(?:or|oder|und|and)\s+',value,flags=re.I)
+        # Semicolon-separated complete role phrases are transport seeds. Splitting
+        # commas/conjunctions turns seniority prose into an unrelated title query.
+        pieces=re.split(r'[;/\n]',value)
         out=[]
         for piece in pieces:
             piece=re.sub(r'https?://\S+|\b[^\s@]+@[^\s@]+\.[^\s@]+|(?<!\w)\+?\d[\d ()-]{7,}\d',' ',piece)
@@ -91,7 +103,7 @@ def initial_plan(profile,markets,brief=None):
             piece=' '.join(piece.split()).strip(' ,-.:')
             piece=re.sub(r'\s+(?:in|at|near|im|bei)$','',piece,flags=re.I)
             words=piece.split()
-            if 2<=len(words)<=7 and len(piece)<=75 and not piece.endswith(('.', '?', '!')):
+            if ',' not in piece and 2<=len(words)<=7 and len(piece)<=75 and not piece.endswith(('.', '?', '!')):
                 if piece not in out:out.append(piece)
         return out[:7]
     for market in markets:
@@ -150,6 +162,7 @@ class SessionSearch(Hunter):
         payload={'kind':'clean_search','job_ids':[],'warnings':[], 'diagnostics':d,
                  'usage':{'ai_invocations':0,'model_seconds':0,'web_actions':0,'cached_assessments':0},'requests':0}
         queries=set();unsuccessful={};links={};native=[];observed_urls=set()
+        call_limit=MAX_AI_CALLS
         known={j['id']:j for j in self.store.jobs()};url_index={normalized_url(j['url']):j for j in known.values()}
         profile=self.store.get('profile');all_markets=profile['markets']
         markets=[m for m in all_markets if market_id=='all' or m['id']==market_id]
@@ -215,7 +228,7 @@ class SessionSearch(Hunter):
             if cancel.is_set():raise ProviderError('Canceled by user.','canceled')
             remaining=min(deadline,phase_end)-time.monotonic()
             if remaining<=1:raise ProviderError('Phase time budget reached; current results retained.','phase_budget')
-            if payload['usage']['ai_invocations']>=MAX_AI_CALLS:raise ProviderError('Bounded AI invocation budget reached; current results retained.','invocation_budget')
+            if payload['usage']['ai_invocations']>=call_limit:raise ProviderError('Bounded AI invocation budget reached; current results retained.','invocation_budget')
             record={'kind':kind,'phase':d['phase'],'country':d['country'],'started_at':now(),'status':'running','seconds':0}
             record['job_ids']=[j['id'] for j in data.get('jobs',[]) if j.get('id')]
             d['ai_calls'].append(record);payload['usage']['ai_invocations']+=1
@@ -425,22 +438,57 @@ class SessionSearch(Hunter):
             phase('enrichment')
             jobs=[j for j in self.store.jobs() if active(j)]
             shortlisted=set()
-            triage_groups=list(triage_batches(jobs))
+            triage_context={'profile':private_profile(profile),'background':brief}
+            instruction_chars=len(ENRICH)+2000  # Reserve the private provider wrapper too.
+            shared_chars=len(json.dumps({**triage_context,'jobs':[]}))+instruction_chars
+            triage_groups=list(triage_batches(jobs,shared_chars))
+            # Splitting one large triage call must not consume the allowance
+            # reserved for assessments. Extra slots are bounded and reported.
+            extra_triage_calls=min(max(0,len(triage_groups)-1),MAX_AI_CALLS)
+            call_limit+=extra_triage_calls
+            d['ai_call_budget']={'base':MAX_AI_CALLS,'additional_triage_slots':extra_triage_calls,'total':call_limit}
+            triage_end=time.monotonic()+max(0,phase_end-time.monotonic())*.6
+            provider_blocked=False
+            d['triage']={'selected':0,'low_relevance':0,'failed':0,'pending':len(jobs)}
+            for candidate in jobs:
+                self.store.upsert_job({'id':candidate['id'],'triage_review':{'status':'pending','reason':'triage_budget'}})
             all_by_id={j['id']:j for j in jobs}
             for batch_index,lean in enumerate(triage_groups):
-                if not available():
+                if not available() or time.monotonic()>=triage_end-1:
                     payload['warnings'].append('Enrichment phase budget reached.')
                     d.setdefault('phase_outcomes',{})['enrichment']='partial'
                     break
                 batch=[all_by_id[item['id']] for item in lean]
-                selection=call('enrichment',ENRICH,
-                               {'profile':private_profile(profile),'background':brief,'jobs':lean})
-                validate('enrichment',selection)
-                chosen,decisions=triage_decisions(selection,lean)
+                data={**triage_context,'jobs':lean}
+                record={'job_ids':[j['id'] for j in lean],'input_chars':len(json.dumps(data))+instruction_chars,
+                    'expected_output_chars':triage_output_size(lean),'status':'running'}
+                d.setdefault('triage_batches',[]).append(record)
+                try:
+                    if record['input_chars']>TRIAGE_INPUT_CHARS:
+                        raise ValueError('Private triage input exceeds the bounded context; no call started.')
+                    selection=call('enrichment',ENRICH,data,allowance=min(30,max(1,triage_end-time.monotonic())))
+                    validate('enrichment',selection)
+                    chosen,decisions=triage_decisions(selection,lean)
+                except (ValueError,ProviderError) as exc:
+                    category=getattr(exc,'category','validation_error')
+                    reason='triage_timeout' if category=='time_window' else 'triage_error'
+                    record.update(status='failed',reason=category)
+                    d['triage']['failed']+=len(batch);d['triage']['pending']-=len(batch)
+                    d.setdefault('failures',[]).append({'phase':'enrichment','country':'','reason':category,
+                        'stage':'Career triage batch','job_ids':record['job_ids']})
+                    payload['warnings'].append('A relevance triage batch could not finish; its candidates remain unassessed.')
+                    for candidate in batch:
+                        self.store.upsert_job({'id':candidate['id'],'triage_review':{'status':'failed','reason':reason}})
+                    progress('Triage batch retained; independent candidates continue')
+                    if category in ('execution_error','subscription_usage_limit','provider_rate_limit','model_access','invocation_budget','total_budget','phase_budget','canceled'):
+                        provider_blocked=True;break
+                    continue
+                record['status']='completed';d['triage']['pending']-=len(batch)
                 shortlisted.update(chosen)
                 for considered in batch:
                     self.store.upsert_job({'id':considered['id'],
                         'triage_decision':{**decisions[considered['id']],'at':now()},
+                        'triage_review':{'status':'completed','reason':'source_based_triage'},
                         'shortlist_status':'selected' if considered['id'] in chosen else 'low_relevance' if decisions[considered['id']]['action']=='low_relevance' else 'not_selected',
                         'shortlist_rank':chosen.index(considered['id'])*len(triage_groups)+batch_index if considered['id'] in chosen else None,
                         'description_review':{'status':'pending','reason':'enrichment_budget'} if considered['id'] in chosen else {'status':'not_selected','reason':'triage_not_selected' if decisions[considered['id']]['action']=='low_relevance' else 'triage_reason_missing'}})
@@ -553,6 +601,8 @@ class SessionSearch(Hunter):
             while queue:
                 m,verified,group=queue.pop(0)
                 if not group:continue
+                if provider_blocked:
+                    stop_reason='evaluation_error';break
                 if phase_end-time.monotonic()<10:
                     stop_reason='evaluation_budget'
                     d.setdefault('failures',[]).append({'phase':'evaluation','country':m['country'] if m else 'Location unverified','reason':'phase_budget','stage':'Insufficient remaining window for another bounded assessment; no CLI call started'})
@@ -595,7 +645,7 @@ class SessionSearch(Hunter):
             else:d['completed_phases'].append('evaluation')
             if any(j['id'] in shortlisted and active(j) and not j.get('description') for j in self.store.jobs()):
                 payload['warnings'].append('Some shortlisted vacancies lack a verified full description; final assessment awaits source verification.')
-            if not shortlisted and self.store.jobs():
+            if not shortlisted and self.store.jobs() and not d['triage']['failed'] and not d['triage']['pending']:
                 payload['warnings'].append('No vacancies passed evidence-aware career triage; research findings remain available.')
             status='canceled' if cancel.is_set() else 'partial' if payload['warnings'] else 'completed'
             d['stop']={'phase':d['phase'],'reason':'canceled' if cancel.is_set() else stop_reason or ('completed_with_limitations' if payload['warnings'] else 'completed')}

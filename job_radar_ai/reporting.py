@@ -15,6 +15,13 @@ def review_state(job, diagnostics=None):
         return {'status': 'assessed', 'reason': 'source_based_assessment'}
     if job.get('shortlist_status') == 'low_relevance':
         return {'status': 'not_selected', 'reason': 'triage_not_selected' if job.get('triage_decision') else 'triage_reason_missing'}
+    triage=job.get('triage_review') or {}
+    if triage.get('status') in ('pending','failed'):
+        return {'status':'pending','reason':triage['reason']}
+    failed_triage=next((call for call in (diagnostics or {}).get('ai_calls',[]) if
+        call.get('kind')=='enrichment' and call.get('status')=='failed' and job['id'] in call.get('job_ids',[])),None)
+    if failed_triage:
+        return {'status':'pending','reason':'triage_timeout' if failed_triage.get('category')=='time_window' else 'triage_error'}
     recorded = job.get('review_state') or (diagnostics or {}).get('review_states', {}).get(job['id'])
     if recorded:
         return recorded

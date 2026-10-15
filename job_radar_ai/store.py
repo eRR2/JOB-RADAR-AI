@@ -208,6 +208,8 @@ class Store:
             historical = match_history(db, merged)
             from .availability import merge_states
             history_payload=json.loads(historical['payload']) if historical else {}
+            if not merged.get('requisition_id') and history_payload.get('requisition_id'):
+                merged['requisition_id']=history_payload['requisition_id']
             states=merge_states(history_payload.get('source_availability'),old_payload.get('source_availability'),job.get('source_availability'))
             if states:merged['source_availability']=states
             if old is None:

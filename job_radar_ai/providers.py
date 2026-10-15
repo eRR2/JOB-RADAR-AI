@@ -315,7 +315,7 @@ class Provider:
             schema = provider_schema(kind)
             schema_path.write_text(json.dumps(schema), encoding='utf-8')
             command = self.command(binary, schema_path, research, schema)
-            if self.name == 'codex' and kind == 'priority_v52':
+            if self.name == 'codex' and kind in ('priority_v52','enrichment'):
                 command[-1:-1] = ['-c', 'model_reasoning_effort="low"']
             self.telemetry = telemetry
             code, output, error = bounded_process(command,

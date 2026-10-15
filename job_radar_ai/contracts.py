@@ -3,6 +3,8 @@ import copy
 import jsonschema
 
 WEIGHTS = ['progression', 'technical', 'salary', 'flexibility', 'company', 'location', 'learning']
+TRIAGE_MAX_JOBS=8
+TRIAGE_TEXT_LIMITS={'reason':300,'transferable_fit':200,'specialist_gap':200,'source_quote':240}
 
 
 def obj(properties):
@@ -72,6 +74,15 @@ def provider_schema(kind):
     unknown/unverified states. No evidence is invented to fill these fields.
     """
     schema = copy.deepcopy(SCHEMAS[kind])
+    if kind=='enrichment':
+        schema['properties']['candidate_ids']['maxItems']=TRIAGE_MAX_JOBS
+        schema['properties']['reason']['maxLength']=300
+        decisions=schema['properties']['decisions']
+        decisions['maxItems']=TRIAGE_MAX_JOBS
+        fields=decisions['items']['properties']
+        for key,limit in TRIAGE_TEXT_LIMITS.items():fields[key]['maxLength']=limit
+        fields['missing_information']['maxItems']=2
+        fields['missing_information']['items']['maxLength']=120
 
     def strict(node):
         if isinstance(node, dict):

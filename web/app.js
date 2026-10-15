@@ -47,7 +47,7 @@ function reviewCounts(){
 }
 function coverageText(){const c=reviewCounts();return c.selected+' review candidates · '+c.assessed+' assessed · '+c.pending+' pending · '+c.excluded+' excluded · '+c.needs_verification+' need evidence verification'+(c.verified_assessed===undefined?'':' · '+c.verified_assessed+' assessed against verified full text · '+c.source_pending+' awaiting full source');}
 function reviewReason(job){
-  return ({confirmed_closed:'Excluded from suitability review: source confirmed closed.',application_recorded:'Application recorded for this exact position; technical fit is a separate question.',identity_or_obsolete_review:'Identity or obsolete status requires review.',
+  return ({triage_timeout:'Triage time limit reached; suitability was not assessed.',triage_error:'Triage failed; suitability was not assessed.',triage_budget:'Triage budget reached before this candidate; suitability was not assessed.',confirmed_closed:'Excluded from suitability review: source confirmed closed.',application_recorded:'Application recorded for this exact position; technical fit is a separate question.',identity_or_obsolete_review:'Identity or obsolete status requires review.',
     evaluation_timeout:'Evaluation time limit reached; suitability remains unassessed.',evaluation_budget:'Evaluation budget exhausted; suitability remains unassessed.',evaluation_error:'Evaluation failed; no completed assessment is available.',
     evidence_validation:'Assessment evidence needs verification; recommendation withheld.',full_source_required:'Verified full duties and requirements are needed before a final assessment.',triage_not_selected:'Not selected by career relevance triage; no suitability assessment.',triage_reason_missing:'Individual triage rationale was not recorded; suitability remains unverified.',triage_not_reached:'Research stopped before relevance triage; suitability remains unassessed.',canceled:'Research was canceled before this assessment.',not_started:'Assessment not started; suitability is unverified.'})[review(job).reason]||'Suitability remains unverified.';
 }
@@ -105,6 +105,7 @@ function researchDiagnostics(){
     ...(run.payload.warnings||[]).map(w=>el('p',{class:'muted'},w)));
 }
 function discover(){
+  const incomplete=state.runs[0]?.status!=='completed'&&(reviewCounts().pending||reviewCounts().needs_verification||state.runs[0]?.payload.provider_error);
   let jobs=state.jobs.filter(j=>j.shortlist_status!=='low_relevance' && review(j).status==='assessed' &&
     (tab==='all'||(!j.previously_seen&&recommended(j)))).sort((a,b)=>
     Number(!!a.previously_seen)-Number(!!b.previously_seen)||
@@ -119,7 +120,7 @@ function discover(){
     el('p',{class:'inline-note'},'Each new search shows fresh findings while preserving your CV, career goals, learned feedback and application/previous vacancy history.'),
     el('div',{class:'tabs result-tabs',role:'group','aria-label':'Search results'},...[["recommended","Recommended"],["all","All Opportunities"]].map(([id,title])=>button(title,()=>{tab=id;render();},id===tab?'active':''))),
     el('h2',{},tab==='all'?'Assessed opportunities':'Fresh reasoned opportunities'),
-    jobs.length?el('div',{class:'job-grid'},jobs.map(card)):el('div',{class:'empty'},el('h3',{},state.jobs.length?'No strong recommendations established yet':'Ready for a fresh search'),el('p',{},state.jobs.length?'All discovered vacancies remain under All Opportunities. Weak matches are not promoted to fill this view.':state.cv.text?'Your saved CV and career goals are ready. Search with AI starts a fresh research session.':'Upload your CV and describe your next step in My next move.')),
+    jobs.length?el('div',{class:'job-grid'},jobs.map(card)):el('div',{class:'empty'},el('h3',{},incomplete?'Assessment could not be completed':state.jobs.length?'No strong recommendations established yet':'Ready for a fresh search'),el('p',{},incomplete?'Research is incomplete; suitability has not been established for pending candidates. Previously verified opportunities remain available below.':state.jobs.length?'All discovered vacancies remain under All Opportunities. Weak matches are not promoted to fill this view.':state.cv.text?'Your saved CV and career goals are ready. Search with AI starts a fresh research session.':'Upload your CV and describe your next step in My next move.')),
     lower.length?el('details',{class:'panel'},el('summary',{},'Lower-relevance discoveries ('+lower.length+')'),
       el('p',{class:'muted'},'Observed source listings not selected for career-fit review. No automatic recommendation.'),
       ...lower.map(card)):null,

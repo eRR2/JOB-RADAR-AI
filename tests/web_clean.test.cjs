@@ -167,3 +167,14 @@ test('projected own-channel closure agrees across freshness, eligibility and rev
   }
 });
 
+test('triage timeout reports assessment unavailable and retains a previous valid opportunity',()=>{
+  const {run}=fixture();run(`state.runs=[{status:'partial',payload:{provider_error:{category:'time_window',message:'Controlled timeout'},diagnostics:{phase:'enrichment',counts:{evaluated:0},stop:{phase:'enrichment',reason:'time_window'}}}}];
+    state.review_coverage={selected:2,assessed:0,pending:2,excluded:0,needs_verification:0};
+    state.jobs=[{id:'pending',title:'Pending observed role',url:'https://example.org/pending',review_state:{status:'pending',reason:'triage_timeout'}}];
+    state.previous_opportunities=[{id:'prior',title:'Previously verified systems role',url:'https://example.org/prior',description:'Actual verified system responsibilities. '.repeat(8),description_source:{kind:'public_verified'},preliminary:{recommend:true,priority:'strong',next_step:'Previously supported architecture ownership'}}];`);
+  const text=run('discover().text');assert.match(text,/Assessment could not be completed/);
+  assert.doesNotMatch(text,/No strong recommendations|Weak matches are not promoted/);
+  assert.match(text,/Previously verified systems role/);assert.match(text,/Pending observed role/);
+  assert.match(text,/triage.*time limit|Triage.*time limit/);
+});
+

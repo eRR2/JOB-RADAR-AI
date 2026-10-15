@@ -429,3 +429,62 @@ test ran with the dashboard already closed. The full user-table digest matched t
 initial read-only snapshot after the tests and page replay. Missing exact source URLs,
 unproven moves and unsupported saved-page structures remain explicit open work;
 synthetic passes do not establish future live source yield.
+
+## Triage-timeout recovery (15 October 2026)
+
+The later live run is explicitly **not an acceptance pass**. It retained 45
+discoveries, sent 44 eligible identities in one enrichment call and hit the call's
+60.189-second timeout. Only discovery completed; source verification and assessment
+never started. The 80-job/40,000-character triage limit measured only compact job
+input, ignoring shared private context and the large per-record decision response.
+The timeout escaped the triage loop to the coordinator's outer failure handler.
+These records prove the stopping mechanism, not the provider's internal latency cause.
+
+Current triage packets contain at most eight jobs, a 40,000-character input estimate
+including shared profile, brief, task and wrapper allowance, and a 14,000-character
+decision-output estimate. New wire responses have compact field limits; saved legacy
+responses retain their validator compatibility. Each triage call has at most 30
+seconds and all triage attempts share 60% of the existing enrichment window, leaving
+40% for sources. Timeouts and validation failures leave only their own candidates
+pending; other packets continue without retry. Provider-wide failures stop further
+inference while earlier valid work remains. Extra packet invocation slots compensate
+for splitting and are bounded, reported and still subject to existing phase deadlines.
+
+Direct-query tracing showed that comma/conjunction splitting reduced compound
+seniority prose to a generic chief-title phrase. Broad technology/data/executive
+listings entered through actual direct search observations. Most had previously-seen
+identities, which represents rediscovery matching rather than reinserting unrelated
+history into the pool. Query construction now keeps whole semicolon-delimited compact
+role phrases; it does not classify or exclude vacancies by title. Private triage still
+uses the full CV and next-move request, and indexed discovery keeps technical scope
+and leadership progression tied to demonstrated capabilities.
+
+Exact application history excluded the known applied requisition from that live
+triage call. Its historical requisition survived, but rediscovery had omitted it from
+the current payload. Exact-history matching now carries that metadata into future
+rediscoveries without changing the independent application decision. Current versus
+missing versus source-channel-closed versus timed-out identities were audited
+privately; not rediscovered never means closed. The original failed run now projects
+per-job triage timeout from saved call identities without rewriting those records.
+
+The empty recommendations view now states that assessment could not finish when
+research is incomplete, rather than implying that weak fit was established. Synthetic
+regressions cover first and middle packet timeouts, including a clock consuming the
+full 30-second allowance, subsequent source/assessment progress, pending failed
+identities and retained previous recommendations. The 73-record fixture still retains
+all records and requires all triage attempts before sources; its provider now returns
+decisions only for identities actually present in each bounded packet. Its declared
+ordering, quote checks and country-scope regressions remain enforced.
+
+A separate controlled replay used all 45 retained records in a private database copy.
+One packet failed deliberately; two exact historical descriptions reached a stubbed
+assessment boundary and the previous valid opportunity remained available. This
+generated **zero real career assessments** and is not live acceptance evidence.
+No new AI/publisher research or user-table write was performed. The dashboard was
+closed after notice for the unchanged launcher regression. The single live acceptance
+run remains an explicit next step after this offline correction.
+
+Final verification: **326 Python tests and 18 offline DOM tests passed**, no failures,
+errors or skips. The unchanged launcher fixture passed with the dashboard closed.
+Compilation, JavaScript syntax and whitespace checks passed. Full logical contents
+of every user database table matched the pre-task snapshot after shutdown and replay.

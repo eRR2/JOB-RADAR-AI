@@ -8,8 +8,14 @@ Old workers cannot write into replacement sessions. Private anonymous briefs are
 cached by knowledge signature before web research; raw career text and CV experience
 records stay in private inference. Exact source/employer requisitions outrank URL
 tracking differences; ID-less matches require corroborating content. Triage precedes
-costly description recovery and assessment. Compact triage batches all finish before
-source enrichment starts; stored AI priority order controls verification and assessment.
+costly description recovery and assessment. Compact triage packets are attempted
+before source enrichment; failures remain pending without stopping other packets.
+Shared private context and expected decision output bound each packet to eight jobs.
+Triage calls use at most 30 seconds and 60% of the existing enrichment window,
+preserving time for source verification. Additional packet slots are separately
+bounded and reported so splitting does not consume the assessment allowance.
+Stored AI priority order controls verification and assessment within the existing
+deterministic packet merge.
 Each selected market gets one primary discovery pass, with broader avenues explicitly
 deferred. Observed job-specific publisher sources precede consented LinkedIn detail
 requests. Only active verified full descriptions enter final assessment, at most two
