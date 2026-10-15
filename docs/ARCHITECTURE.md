@@ -13,8 +13,15 @@ triage packet reaches source enrichment, bounded assessment and immediate decisi
 persistence before another packet or discovery call. Failures remain pending without
 stopping independent packets; no discovery-wide or triage-wide barrier remains.
 Shared private context and expected decision output bound each packet to eight jobs.
+The combined admission bound is 35,000 units: serialized private input plus twice
+the maximum compact output estimate. It is a conservative capacity rule, not a model
+latency prediction. Large shared contexts produce smaller packets without truncating
+CV evidence or relaxing per-job source rationale. A singleton that cannot fit is
+withheld explicitly. No new call starts with less than 20 seconds available.
 Triage calls use at most 30 seconds and 60% of the existing enrichment window,
-preserving time for source verification. Additional packet slots are separately
+including a 60% cap within each round's fair share, preserving time for source
+verification. Unattempted deferred packets remain eligible in subsequent rounds;
+failed packets remain processed and are not retried unchanged. Additional packet slots are separately
 bounded and reported so splitting does not consume the assessment allowance.
 Stored AI priority order controls verification and assessment within each ready packet.
 The existing coordinator visits selected markets round-robin, then rotates their
@@ -27,11 +34,20 @@ capabilities, gaps, unsuccessful queries, missing sources and next queries. Publ
 research never receives raw CV, feedback, assessment or application-history objects.
 Obvious private echoes are rejected before public transfer. Guidance failure does
 not retry that call or discard mandatory country/employer visits.
+Guidance reuses the existing anonymized capability brief, at most eight findings
+prioritizing completed assessments/triage, and whole-round coverage counts; the raw
+CV is not repeated in its private context. Triage and assessment still receive it.
+Guidance explicitly requests low reasoning. It retains its 20-second maximum.
 One global deadline and cumulative phase-spent ledgers retain the existing
 600/150/150-second allocations; guidance consumes discovery time. Round reentry
 cannot restore spent time. Local timeouts retain their exact failed job identities
 while later independent assessments advance. Publisher-wide restrictions and
 provider-wide authentication/access failures remain effective.
+Safe provider diagnostics distinguish installation/authentication, process launch,
+CLI events, response wait and output validation; store prompt/schema sizes, requested
+reasoning and bounded event timings, never raw prompt/CV/output. A default model
+request is labeled unrecorded rather than inventing the runtime model. Nonfatal CLI
+notices retain only recognized error categories/codes, separate from a failed result.
 Observed job-specific publisher sources precede consented LinkedIn detail
 requests. Only active verified full descriptions enter final assessment, at most two
 per call, with long descriptions isolated rather than truncating their requirements.

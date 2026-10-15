@@ -1,5 +1,6 @@
 """Subscription CLI adapters; stdin prompts, argv commands, restricted tools."""
 import json
+import hashlib
 import os
 import re
 import shutil
@@ -246,11 +247,13 @@ class Provider:
             raise ProviderError('Claude output is not valid structured JSON.') from exc
 
     def run(self, kind, task, context, cancel=None, research=False, timeout=240):
-        telemetry = {'cli_started':False,'event_count':0,'event_types':{},'item_types':{},'web_calls':0,'observed_urls':[],'observations':[],'actions':[]}
+        telemetry = {'cli_started':False,'event_count':0,'event_types':{},'item_types':{},'web_calls':0,'observed_urls':[],'observations':[],'actions':[],
+                     'stage':'installation','timeline':[]}
         self.telemetry=telemetry
         binary = executable(self.name)
         if not binary:
             raise ProviderError(f'{self.name} CLI is not installed. Install and sign in separately.')
+        telemetry['stage']='authentication'
         if not self.status().get('authenticated'):
             raise ProviderError('A supported subscription login is required. API-key and unknown authentication are not used by this application.')
         # Never silently switch to API billing credentials inherited by this process.
@@ -280,13 +283,20 @@ class Provider:
             telemetry['event_types'][event_type]=telemetry['event_types'].get(event_type,0)+1
             elapsed=round(time.monotonic()-began,3)
             telemetry.setdefault('first_event_seconds',elapsed);telemetry['last_event_seconds']=elapsed
+            if len(telemetry['timeline'])<32:telemetry['timeline'].append({'type':event_type,'seconds':elapsed})
+            if event_type=='turn.started':telemetry['stage']='awaiting_response'
+            elif event_type=='turn.completed':telemetry['stage']='response_received'
             if event.get('type') == 'turn.completed' and isinstance(event.get('usage'), dict):
                 telemetry['usage'] = {k:v for k,v in event['usage'].items() if k in ('input_tokens','cached_input_tokens','output_tokens') and type(v) is int and v >= 0}
             item = event.get('item', {})
             tool = item.get('type', '')
             if tool:
-                safe_type=tool if tool in ('reasoning','agent_message','web_search','command_execution','file_change','mcp_tool_call','collab_tool_call') else 'other'
+                safe_type=tool if tool in ('reasoning','agent_message','error','web_search','command_execution','file_change','mcp_tool_call','collab_tool_call') else 'other'
                 telemetry['item_types'][safe_type]=telemetry['item_types'].get(safe_type,0)+1
+            if tool=='agent_message':telemetry['stage']='response_received'
+            if (tool=='error' or event_type in ('error','turn.failed')) and len(telemetry.setdefault('cli_notices',[]))<4:
+                error=execution_error(json.dumps({'type':'error','message':item.get('message',event.get('message',event.get('error','')))}))
+                telemetry['cli_notices'].append({'category':error.category,**error.diagnostics})
             if tool == 'web_search':
                 telemetry['web_calls'] += int(event.get('type') == 'item.completed')
                 if event.get('type') == 'item.completed':
@@ -315,17 +325,28 @@ class Provider:
             schema = provider_schema(kind)
             schema_path.write_text(json.dumps(schema), encoding='utf-8')
             command = self.command(binary, schema_path, research, schema)
-            if self.name == 'codex' and kind in ('priority_v52','enrichment'):
+            low_reasoning=self.name=='codex' and kind in ('priority_v52','enrichment','research_guidance')
+            if low_reasoning:
                 command[-1:-1] = ['-c', 'model_reasoning_effort="low"']
+            schema_bytes=json.dumps(schema).encode('utf-8')
+            telemetry['wire']={'prompt_characters':len(prompt),'prompt_utf8_bytes':len(prompt.encode('utf-8')),
+                'schema_bytes':len(schema_bytes),'schema_sha256':hashlib.sha256(schema_bytes).hexdigest(),
+                'model_requested':'cli_default_unrecorded','reasoning_requested':'low' if low_reasoning else 'cli_default_unrecorded',
+                'web_enabled':research,'timeout_seconds':timeout}
+            telemetry['stage']='process_start'
             self.telemetry = telemetry
             code, output, error = bounded_process(command,
                 prompt, cwd=directory, timeout=timeout, cancel=cancel, env=env, on_line=event_line if self.name == 'codex' else None,
-                on_started=lambda:telemetry.update(cli_started=True))
+                on_started=lambda:telemetry.update(cli_started=True,stage='awaiting_cli_events'))
             self.telemetry = telemetry
+            telemetry['cli_exit_code']=code
             if forbidden.is_set():
                 raise ProviderError('Provider attempted a tool outside the permitted research contract; result refused.')
             if code != 0:
-                raise execution_error(error+'\n'+output, exit_code=code)
+                failure=execution_error(error+'\n'+output, exit_code=code)
+                telemetry['provider_error']={'category':failure.category,**failure.diagnostics}
+                raise failure
+            telemetry['stage']='output_validation'
             if self.name == 'codex':
                 result_path = directory / 'result.json'
                 if not result_path.is_file():
@@ -339,7 +360,9 @@ class Provider:
                 # JSON result has no full tool trace. Do not claim web execution from model prose.
                 self.telemetry['research_unverified'] = research
             try:
-                return validate(kind, value)
+                result=validate(kind, value)
+                telemetry['stage']='validated'
+                return result
             except ValueError as exc:
                 raise ProviderError(str(exc)) from exc
 

@@ -5,6 +5,10 @@ from .contracts import TRIAGE_MAX_JOBS,TRIAGE_TEXT_LIMITS
 
 TRIAGE_INPUT_CHARS=40000
 TRIAGE_OUTPUT_CHARS=14000
+# Conservative admission units, not a claim of constant model throughput.
+# Shared input competes with output generation: a heavy CV/request cannot use
+# the same eight-job output allowance as a short context under a 30s deadline.
+TRIAGE_WORK_CHARS=35000
 
 
 def triage_output_size(jobs):
@@ -12,6 +16,10 @@ def triage_output_size(jobs):
         **{key:'x'*limit for key,limit in TRIAGE_TEXT_LIMITS.items()},
         'missing_information':['x'*120]*2} for j in jobs]
     return len(json.dumps({'candidate_ids':[j['id'] for j in jobs],'reason':'x'*300,'decisions':decisions}))
+
+
+def triage_work_size(jobs,shared_chars):
+    return shared_chars+len(json.dumps(jobs))+2*triage_output_size(jobs)
 
 
 def ranked_candidates(jobs):
@@ -30,7 +38,8 @@ def triage_batches(jobs,shared_chars=0):
               'evidence_completeness':'full_source' if verified_description(job) else 'partial' if job.get('partial_source_text') else 'snippet',
               'source_excerpt':(job.get('description') or ' '.join(o.get('text','') for o in job.get('source_observations',[])[:2]))[:650]}
         length=len(json.dumps(item))
-        if batch and (len(batch)>=TRIAGE_MAX_JOBS or shared_chars+size+length+2>TRIAGE_INPUT_CHARS or triage_output_size(batch+[item])>TRIAGE_OUTPUT_CHARS):
+        if batch and (len(batch)>=TRIAGE_MAX_JOBS or shared_chars+size+length+2>TRIAGE_INPUT_CHARS or
+                      triage_output_size(batch+[item])>TRIAGE_OUTPUT_CHARS or triage_work_size(batch+[item],shared_chars)>TRIAGE_WORK_CHARS):
             yield batch;batch=[];size=0
         batch.append(item);size+=length+2
     if batch:yield batch

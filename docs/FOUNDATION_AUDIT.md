@@ -601,3 +601,87 @@ verification passed **343 Python tests**, without skips; compilation and whitesp
 checks passed. The dashboard was already closed for the unchanged launcher test.
 All user SQLite tables matched the read-only pre-test digest. No live research or
 user-record changes were performed.
+
+## Retained 13:05:51 private-call latency diagnosis
+
+The retained run started at 11:05:51 UTC / 13:05:51 local time. Two indexed research
+calls completed in 64.610 and 66.952 seconds. Three eight-job enrichment calls failed
+at 30.216, 30.169 and 29.817 seconds; an earlier private guidance call completed in
+17.365 seconds and the last guidance call timed out at 20.146 seconds. No career
+assessment ran. These are timeout observations, not a successful research run.
+
+The three recorded private-input bounds were 30,819 / 30,187 / 30,601 characters.
+Read-only reconstruction from retained current profile, brief and exact packet
+identities matched all three bounds. The corresponding full stdin prompts measure
+28,958 / 28,441 / 28,875 characters (29,155 / 28,613 / 29,044 UTF-8 bytes). Original
+ephemeral stdin was not retained, so byte identity with the historical request cannot
+be proved. The strict wire schema is 1,062 bytes, permits up to eight decisions and
+requires eight fields per decision. The compact maximum-output estimates were about
+11.6k characters per packet; they are bounds, not observed output or token forecasts.
+
+Every failed enrichment launched its CLI and received thread/turn events within
+0.184–0.336 seconds. No completed agent response or turn completion was retained.
+`bounded_process` raised its local time-window exception before structured-result
+reading and validation. Thus launch failure and post-response schema validation
+are not the observed blocking stage. There is no retained quota/rate-limit response
+establishing a quota cause. The internal split between transport wait, queueing,
+model prefill, reasoning and generation remains unobserved; absence of completed
+JSON does not prove that no tokens had been generated internally.
+
+Enrichment explicitly requested low reasoning. `--ignore-user-config` excludes the
+user config's high setting; it must not be blamed as the effective setting.
+The historical model name, resolved binary/version and hidden startup notice text
+were not recorded. The model was not pinned. A current model catalog is insufficient
+to establish the exact historical runtime model. The current resolver selects native
+Codex CLI 0.162.0-alpha.17.2; this describes the diagnostic environment, not proof of
+the old run's binary. No model substitution was added.
+
+Exactly one owner-authorized private diagnostic inference used two identities from
+the first failed packet, the same CV/request context and existing enrichment contract,
+with all web/tools disabled. It had a 118-second subprocess limit under a 120-second
+measurement guard; there was no retry. Its reconstructed prompt was 26,479 characters /
+26,651 UTF-8 bytes and the compact output bound was 3,166 characters. It returned in
+**15.390 seconds**, with its completed agent event at 13.884 and turn completion at
+14.972 seconds. Two triage decisions passed the existing structured-output and source-quotation checks;
+actual structured output was 1,880 characters. Reported usage was 18,980 input tokens,
+zero cached input tokens and 341 output tokens. No raw prompt, CV, decision text or
+provider output was copied into this audit or application logs, and no user job was
+updated. A startup `item.error` also occurred in this successful measurement; its
+content was not retained, so that notice is not evidence of a fatal quota cause.
+
+The measurement supports a smaller workload fitting the existing private-call window;
+it is not a paired benchmark proving payload size as the sole cause of every historical
+timeout. Network/server variability, historical runtime defaults and startup-notice
+content remain uncertain. The one private inference is not full live acceptance.
+
+Correction keeps the 900-second total, 600/150/150 phase allowances, 30-second triage
+maximum and 20-second guidance maximum. Triage now also admits packets under a combined
+35,000-unit input/output bound. All three retained eight-job packets repartition into
+four two-job packets each, without deleting or altering a user record. Lightweight
+contexts may still use eight jobs. No new call starts with less than a 20-second usable
+triage window. Both global and round-specific 60% triage shares preserve source time;
+transitions never refund spent allowance. Deferred unattempted packets can progress
+in another round; attempted failed packets are not retried unchanged.
+
+Guidance no longer repeats the raw CV already distilled in the capability brief.
+It receives at most eight private findings, whole-round counts and compact failure
+categories, with explicit low reasoning. Full CV/source evidence remains available
+to triage and final assessment. Safe diagnostics now record wire sizes, schema hash,
+requested/default-unrecorded model/reasoning, bounded event timings, processing stage
+and recognized CLI error categories. Raw data and arbitrary CLI notice text stay out.
+
+Synthetic regressions use the measured 15.390-second small-packet latency alongside
+the retained 30-second failure pattern, real source parsing and a controlled source
+time cost. They require durable assessment progress, visible deferred jobs, retained
+source/total budgets, no undersized new calls, no retry of failed packet identities,
+and continuation of unattempted packets after the next country's research. Additional
+checks cover bounded guidance with full coverage counts, actual-CV retention in
+triage/assessment, explicit guidance reasoning, safe quota-notice classification and
+distinct response-wait versus output-validation stages. These are offline regressions.
+
+Final verification: **351 Python tests and 19 offline DOM tests passed**, without
+skips. Compilation and whitespace checks passed. The idle dashboard was closed
+through its guarded endpoint after advance notice for the unchanged launcher fixture;
+all user SQLite tables still matched the read-only pre-task digest. Exactly one
+private diagnostic inference was used; no new vacancy search or full live research
+was started. The retained failed run and its zero-assessment coverage remain intact.

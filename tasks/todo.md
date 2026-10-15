@@ -136,6 +136,7 @@ Historical tasks above do not override the current contract.
 - [x] Replace whole-pool barriers with small discovery/triage/source/assessment rounds, immediate persistence and private anonymous next-round guidance.
 - [x] Preserve cumulative total/phase deadlines, country call/time reservations, explicit employer rotation, exact identity and quotation gates; compare only saved valid assessments.
 - [x] Replace the obsolete all-triage-before-sources assertion with first-packet progress while retaining all 73 observations and the AI-declared source order; see the current foundation audit.
+- [x] Diagnose retained private-call timeouts; measure exactly one authorized two-job no-web inference, then bound combined triage workload and guidance context without increasing permanent timeouts.
 - [ ] One owner-led live acceptance run after the triage-timeout fix; previous failed run is not an acceptance pass.
 - [ ] Obtain exact independently observed publications for retained LinkedIn-only candidates and establish whether missing employer URLs moved; existing records do not supply those facts.
 - [ ] Establish the exact original employer publication for the user-reported closed LinkedIn listing; retain unknown employer status until verified.

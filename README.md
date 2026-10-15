@@ -54,10 +54,15 @@ for employer, locality and advertised compensation are labeled unverified and ne
 replace canonical identity facts. An advertised salary ceiling is not guaranteed pay.
 An empty local application status is unverified until supported by a recorded decision.
 Triage uses at most eight candidates per call, with shared private input and expected
-decision output both bounded. A failed packet stays unassessed while other packets
+decision output both bounded. A combined input/output work limit reduces heavy
+contexts to smaller packets; a 20-second minimum remaining window prevents starting
+an already undersized call. The 30-second triage maximum is unchanged. A failed packet stays unassessed while other packets
 continue. Triage has a separate allowance inside enrichment so source verification
 retains time. Incomplete research is an unavailable assessment, not evidence of weak
 fit. Previously valid opportunities remain visible as historical findings.
+Private guidance reuses the capability brief, bounded prior findings and full-round
+coverage counts, without repeating the raw CV. Triage and final assessment still
+receive the actual CV; final source/CV quotation checks remain unchanged.
 Triage retains an individual rationale, transferable capability, specialist gap and
 literal source evidence for every current decision. Missing or title-only evidence
 requires verification, not a low-relevance verdict. Application state suppresses a

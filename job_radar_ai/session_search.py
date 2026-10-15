@@ -22,6 +22,7 @@ from .access import linkedin_state
 from .contracts import validate
 from .reporting import review_state, coverage, compared_opportunities
 from .verification import triage_batches, ranked_candidates, assessment_batches, triage_decisions,triage_output_size,TRIAGE_INPUT_CHARS
+from .verification import triage_work_size,TRIAGE_WORK_CHARS
 from .availability import observation,merge_states
 
 PHASE_SECONDS = {'discovery':600,'enrichment':150,'evaluation':150}
@@ -89,6 +90,10 @@ Output is public research context: anonymize ALL fields. No names, contacts, car
 history employers, projects, CV quotations, private feedback or application history.
 Use generic capability language rather than quoting private findings. Recommend
 continuation only for a distinct useful avenue, not another attempt at a failed call.'''
+GUIDANCE += ''' The capability brief was derived privately from the actual CV; use
+that brief and previous technical findings without inventing qualifications. Findings
+are a bounded sample: round_summary describes the entire round. Omitted candidates
+are not rejections. Failures describe unfinished work, not evidence of poor fit.'''
 RESEARCH += ''' This is ONE focused small round, with at most eight observed jobs.
 Follow round_findings and planned_queries derived from prior verified findings.
 Begin with employer_focus when supplied, then diversify; a productive employer must
@@ -209,7 +214,7 @@ class SessionSearch(Hunter):
         phase_started=started;current_phase=None
         spent={k:0.0 for k in PHASE_SECONDS};round_spent=spent.copy()
         round_caps={k:v*duration/900 for k,v in PHASE_SECONDS.items()}
-        triage_spent=0.0
+        triage_spent=0.0;round_triage_start=0.0
         ai=ai or Provider(self.store.get('profile')['provider'],self.root/'.private/ai')
         fetcher=fetcher or PublicFetcher(self.store,cancel,budget=float('inf'),deadline=deadline,publisher_budget=3)
         self.public_fetcher=fetcher
@@ -320,7 +325,9 @@ class SessionSearch(Hunter):
             progress('AI '+kind+' · '+d['country'])
             began=time.monotonic();ai.telemetry={}
             try:
-                result=ai.run(kind,task,data,cancel=cancel,research=research,timeout=min(90 if research else 60,remaining,allowance or remaining))
+                timeout=min(90 if research else 60,remaining,allowance or remaining)
+                record['timeout_seconds']=round(timeout,3)
+                result=ai.run(kind,task,data,cancel=cancel,research=research,timeout=timeout)
                 record['status']='completed'
                 return result
             except Exception as exc:
@@ -332,7 +339,8 @@ class SessionSearch(Hunter):
                 payload['usage']['model_seconds']+=record['seconds']
                 if kind=='enrichment':triage_spent+=time.monotonic()-began
                 telemetry=getattr(ai,'telemetry',{})
-                record['cli_events']={k:telemetry[k] for k in ('cli_started','event_count','event_types','item_types','first_event_seconds','last_event_seconds') if k in telemetry}
+                record['cli_events']={k:telemetry[k] for k in ('cli_started','event_count','event_types','item_types','first_event_seconds','last_event_seconds',
+                    'stage','wire','timeline','cli_notices','cli_exit_code','provider_error') if k in telemetry}
                 if research:
                     payload['usage']['web_actions']+=telemetry.get('web_calls',0)
                     record['web_actions']=telemetry.get('web_calls',0)
@@ -449,7 +457,6 @@ class SessionSearch(Hunter):
             nonlocal call_limit,provider_blocked,stop_reason
             if not jobs:return
             rank_offset=len(processed)
-            processed.update((j['id'],evidence_version(j)) for j in jobs)
             triage_context={'profile':private_profile(profile),'background':brief}
             instruction_chars=len(ENRICH)+2000  # Reserve the private provider wrapper too.
             shared_chars=len(json.dumps({**triage_context,'jobs':[]}))+instruction_chars
@@ -464,22 +471,25 @@ class SessionSearch(Hunter):
             all_by_id={j['id']:j for j in jobs}
             for batch_index,lean in enumerate(triage_groups):
                 phase('enrichment')
-                triage_end=min(phase_end,time.monotonic()+max(0,d['phase_budgets']['enrichment']*.6-triage_spent))
+                triage_remaining=min(d['phase_budgets']['enrichment']*.6-triage_spent,
+                    round_caps['enrichment']*.6-(triage_spent-round_triage_start))
+                triage_end=min(phase_end,time.monotonic()+max(0,triage_remaining))
                 if payload['usage']['ai_invocations']>=call_limit-reserved_discovery:
                     payload['warnings'].append('Triage deferred to preserve first discovery coverage of selected countries.')
                     d.setdefault('phase_outcomes',{})['enrichment']='partial'
                     break
-                if not available() or time.monotonic()>=triage_end-1:
-                    payload['warnings'].append('Enrichment phase budget reached.')
+                if not available() or triage_end-time.monotonic()<20:
+                    payload['warnings'].append('Triage window too short for another bounded call; source-verification share retained.')
                     d.setdefault('phase_outcomes',{})['enrichment']='partial'
                     break
                 batch=[all_by_id[item['id']] for item in lean]
                 data={**triage_context,'jobs':lean}
                 record={'job_ids':[j['id'] for j in lean],'input_chars':len(json.dumps(data))+instruction_chars,
-                    'expected_output_chars':triage_output_size(lean),'status':'running'}
+                    'expected_output_chars':triage_output_size(lean),'work_units':triage_work_size(lean,shared_chars),'status':'running'}
                 d.setdefault('triage_batches',[]).append(record)
                 try:
-                    if record['input_chars']>TRIAGE_INPUT_CHARS:
+                    processed.update((j['id'],evidence_version(j)) for j in batch)
+                    if record['input_chars']>TRIAGE_INPUT_CHARS or record['work_units']>TRIAGE_WORK_CHARS:
                         raise ValueError('Private triage input exceeds the bounded context; no call started.')
                     selection=call('enrichment',ENRICH,data,allowance=min(30,max(1,triage_end-time.monotonic())))
                     validate('enrichment',selection)
@@ -693,6 +703,7 @@ class SessionSearch(Hunter):
             while pending and time.monotonic()<deadline-1 and not provider_blocked and payload['usage']['ai_invocations']<call_limit:
                 settle()
                 round_spent={k:0.0 for k in PHASE_SECONDS}
+                round_triage_start=triage_spent
                 first_visits=sum(passes[m['id']]==0 for m in pending)
                 share=max(1,first_visits)
                 round_caps={k:max(0,d['phase_budgets'][k]-spent[k])/share for k in PHASE_SECONDS}
@@ -760,12 +771,20 @@ class SessionSearch(Hunter):
                     if not available():continue  # Only this round's fair share expired.
                     target=pending[0]
                     try:
+                        direction=private_profile(market_profile(profile,target,self.store))
+                        direction.pop('cv_text',None)  # Already distilled in the capability brief and private findings.
+                        round_jobs=[j for j in self.store.jobs() if j['id'] in {v['id'] for v in candidates}]
+                        sampled=sorted(round_jobs,key=lambda j:0 if review_state(j)['status']=='assessed' else
+                            1 if j.get('triage_decision') else 2)[:8]
                         guidance=call('research_guidance',GUIDANCE,{
-                            'profile':private_profile(market_profile(profile,target,self.store)),
+                            'profile':direction,
                             'background':brief,'next_market':target,
                             'previous_market':m['id'],'previous_queries':sorted(queries),
-                            'findings':[round_finding(j) for j in self.store.jobs() if j['id'] in {v['id'] for v in candidates}],
-                            'failures':d.get('failures',[])[-5:]},allowance=20)
+                            'findings':[round_finding(j) for j in sampled],
+                            'round_summary':{'candidates':len(round_jobs),'assessed':sum(review_state(j)['status']=='assessed' for j in round_jobs),
+                                'triage_failed':sum(j.get('triage_review',{}).get('status')=='failed' for j in round_jobs),
+                                'unattempted':sum(j['id'] not in processed for j in round_jobs)},
+                            'failures':[{k:f.get(k,'') for k in ('phase','country','reason')} for f in d.get('failures',[])[-5:]]},allowance=20)
                         validate('research_guidance',guidance)
                         public_guidance(guidance,profile,self.store.get('persistent_feedback',[]))
                         guidance_market=target['id']
