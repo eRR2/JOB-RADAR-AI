@@ -27,7 +27,8 @@ def review_state(job, diagnostics=None):
         return recorded
     failures = [f for f in (diagnostics or {}).get('failures', []) if f.get('phase') == 'evaluation']
     country = job.get('review_country') or job.get('country') or 'Location unverified'
-    relevant = next((f for f in failures if f.get('country') == country), None)
+    relevant = next((f for f in failures if job['id'] in f.get('job_ids',[])), None)
+    relevant = relevant or next((f for f in failures if 'job_ids' not in f and f.get('country') == country), None)
     reason = (relevant or {}).get('reason', '')
     if reason == 'time_window':
         return {'status': 'pending', 'reason': 'evaluation_timeout'}
@@ -59,3 +60,16 @@ def coverage(jobs, diagnostics=None):
         else:
             counts['not_selected'] += 1
     return counts
+
+
+def compared_opportunities(jobs):
+    """Compare saved AI judgments; transport code adds no new suitability claims."""
+    from .recommendations import verified_description,PRIORITIES,active
+    eligible=[j for j in jobs if active(j) and verified_description(j) and
+              review_state(j)['status']=='assessed' and j.get('preliminary',{}).get('signature')]
+    eligible.sort(key=lambda j:-PRIORITIES.get(j['preliminary'].get('priority'),-1))
+    return [{'job_id':j['id'],'assessment_signature':j['preliminary']['signature'],
+             'title':j.get('title',''),'company':j.get('company',''),
+             'country':j.get('country',''),**{k:j['preliminary'].get(k,'' if k not in ('gaps','evidence') else [])
+                 for k in ('priority','next_step','gaps','evidence','authority','tradeoffs','salary_evidence','hours_evidence','work_arrangement')}}
+            for j in eligible]

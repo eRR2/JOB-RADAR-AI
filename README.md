@@ -25,19 +25,26 @@ The current coordinator is `SessionSearch`:
    publications. Source access failures remain uncertainty, not proof of closure.
 4. Match exact employer requisitions, source identities and normalized URLs. Matching
    without IDs requires corroborating employer, title, location and substantial content.
-5. Exclude already applied/rejected exact vacancies from expensive review. Privately
-   triage other candidates before bounded description enrichment and assessment.
-6. Show fresh credible recommendations first, with a short separate section for
+5. In each small round, exclude only already applied/rejected exact vacancies;
+   triage a bounded packet, inspect its observed sources, assess ready descriptions
+   and persist each validated decision before the next packet or discovery round.
+6. Privately distill findings into anonymous next-round queries: transferable
+   capability, specialist gaps, unsuccessful queries and missing publisher text.
+   Visit selected countries first and rotate explicit employer priorities.
+7. Compare saved AI judgments from verified descriptions. Show fresh credible
+   recommendations first, with a short separate section for
    previously found opportunities. All Opportunities retains other discoveries.
 
 Incomplete assessments have a separate section and an explicit timeout, budget or
 validation reason. Source-confirmed closed positions remain visible as review
 exclusions; they are not cached assessments. Completed phase labels reflect actual
 coverage. Snippet-only decisions stay short and preliminary. Final recommendations
-require a verified publisher description and literal responsibility evidence. Primary
-discovery covers each selected market once, then compact relevance triage orders source
-verification before bounded assessment calls of at most two complete descriptions.
-Broader discovery avenues are recorded as deferred, not exhausted. Missing source text
+require a verified publisher description and literal responsibility evidence. Discovery
+returns at most eight jobs per call; assessment uses at most two complete descriptions.
+There is no all-discoveries or all-triage barrier. The same 900-second total budget
+and cumulative 600/150/150-second phase allowances cover every round, including
+private guidance. Phase transitions never renew them. Unvisited employer priorities
+and unfinished avenues remain explicit. Missing source text
 remains pending; budgets and provider failures never imply completed assessment.
 The 5.3 preview also refuses the `--scheduled` CLI entry before opening storage or
 providers. Searches require an explicit dashboard action; legacy catch-up remains

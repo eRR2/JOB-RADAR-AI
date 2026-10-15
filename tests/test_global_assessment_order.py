@@ -98,12 +98,13 @@ class GlobalAssessmentOrderTests(unittest.TestCase):
         calls, jobs, run = self.execute([
             ('DE-1', 'DE', True), ('NL-2', 'NL', True),
             ('NL-3', 'NL', True), ('DE-4', 'DE', True)], fail_second=True)
-        self.assertEqual([j['id'] for j in jobs if j.get('evaluation_status') == 'assessed'], ['DE-1'])
-        self.assertEqual([[j['id'] for j in c['jobs']] for c in calls], [['DE-1'], ['NL-2', 'NL-3']])
+        self.assertEqual([j['id'] for j in jobs if j.get('evaluation_status') == 'assessed'], ['DE-1','DE-4'])
+        self.assertEqual([[j['id'] for j in c['jobs']] for c in calls], [['DE-1'], ['NL-2', 'NL-3'], ['DE-4']])
         self.assert_scope(calls[0], 'DE')
         self.assert_scope(calls[1], 'NL')
+        self.assert_scope(calls[2], 'DE')
         self.assertEqual(run['status'], 'partial')
-        pending = [j for j in jobs if j['id'] != 'DE-1']
+        pending = [j for j in jobs if j['id'] in ('NL-2','NL-3')]
         self.assertTrue(all(j['review_state'] == {'status': 'pending', 'reason': 'evaluation_timeout'} for j in pending))
 
 

@@ -35,6 +35,9 @@ EVALUATION = obj({
     'hr': obj({'assessment': string(), 'strengths': array(string(1000)), 'gaps': array(string(1000)), 'interview_risks': array(string(1000))}),
 })
 SCHEMAS = {
+    'research_guidance':obj({'focus':string(500),'transferable_capabilities':array(string(200),4),
+        'specialist_gaps':array(string(200),4),'unsuccessful_queries':array(string(160),4),
+        'missing_sources':array(string(200),4),'next_queries':array(string(160),3),'continue_research':{'type':'boolean'}}),
     'enrichment':obj({'candidate_ids':array(string(250),40),'reason':string(1500)}),
     'session_brief': obj({'background':array(string(700),12),'direction':string(1500),'country_preferences':array(obj({'country_id':string(2),'conditions':array(string(800),15)}),6)}),
     'priority_v52': obj({'assessments': array(obj({'job_id': string(250), 'category': enum('direct','transferable','stretch','unrelated','needs_verification'), 'recommend': {'type':'boolean'}, 'priority': enum('exceptional','strong','consider','weak','unsuitable'), 'next_step': string(3000), 'critical_gap': {'type':'boolean'}, 'gaps': array(string(1000)), 'evidence': array(EVIDENCE)}),20)}),
@@ -74,6 +77,7 @@ def provider_schema(kind):
     unknown/unverified states. No evidence is invented to fill these fields.
     """
     schema = copy.deepcopy(SCHEMAS[kind])
+    if kind=='research_v5':schema['properties']['jobs']['maxItems']=TRIAGE_MAX_JOBS
     if kind=='enrichment':
         schema['properties']['candidate_ids']['maxItems']=TRIAGE_MAX_JOBS
         schema['properties']['reason']['maxLength']=300

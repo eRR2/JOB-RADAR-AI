@@ -23,6 +23,20 @@ function fixture(){
   return {run,surfaces};
 }
 function nodes(root){return [root,...(root.children||[]).flatMap(nodes)];}
+
+test('completed evidence-based decisions are compared while pending work stays separate',()=>{
+  const {run}=fixture();run(`state.jobs=[
+    {id:'ready',title:'Verified role',description:'Verified duties '.repeat(12),description_source:{kind:'public_verified'},preliminary:{signature:'synthetic',priority:'strong',next_step:'Demonstrated ownership',gaps:['Specialist tools unproven'],authority:'Technical decisions',tradeoffs:'Relocation required',evidence:[{job_quote:'Verified duties'}]}},
+    {id:'pending',title:'Pending role',review_state:{status:'pending',reason:'full_source_required'}}];
+    state.runs=[{status:'partial',payload:{comparison:[{job_id:'ready',assessment_signature:'synthetic',priority:'strong',next_step:'Demonstrated ownership',gaps:['Specialist tools unproven'],authority:'Technical decisions',tradeoffs:'Relocation required'},{job_id:'pending',next_step:'Must never be compared'}]}}];`);
+  const page=run('discover()');
+  const comparison=nodes(page).find(n=>n.className==='panel opportunity-comparison');
+  assert.ok(comparison);assert.match(comparison.text,/Verified role|Demonstrated ownership|Specialist tools unproven|Relocation required/);
+  assert.doesNotMatch(comparison.text,/Pending role|Must never be compared/);
+  assert.match(page.text,/Incomplete assessments \(1\)/);
+  run(`state.jobs[0].preliminary.signature='changed-after-research';`);
+  assert.equal(run('opportunityComparison()'),null,'Old comparisons cannot describe a replacement assessment');
+});
 test('exactly two results tabs; no historical feature controls',()=>{
   const {run}=fixture();const page=run('discover()');
   const tabs=nodes(page).find(n=>n.className==='tabs result-tabs');

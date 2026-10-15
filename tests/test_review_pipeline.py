@@ -100,13 +100,13 @@ class ReviewPipelineTests(unittest.TestCase):
         self.assertEqual(state['status'], 'excluded')
         self.assertEqual(state['reason'], 'confirmed_closed')
 
-    def test_timeout_keeps_first_batch_and_labels_every_remaining_selected_job(self):
+    def test_timeout_keeps_first_batch_and_advances_independent_remaining_jobs(self):
         ai = ReviewAI(fail_second=True)
         jobs, run = self.execute(ai)
         self.assertEqual(len(jobs), 24)
-        self.assertEqual(sum(bool(j.get('preliminary', {}).get('signature')) for j in jobs), 2)
+        self.assertEqual(sum(bool(j.get('preliminary', {}).get('signature')) for j in jobs), 22)
         self.assertTrue(all(j.get('description_source', {}).get('kind') == 'public_verified' for j in jobs))
-        self.assertEqual(ai.assessment_calls, 2, 'A timeout must stop assessment calls in this run')
+        self.assertEqual(ai.assessment_calls, 12, 'A failed packet is not retried; independent packets still advance')
         self.assertEqual(run['status'], 'partial')
         diagnostics = run['payload']['diagnostics']
         self.assertNotIn('evaluation', diagnostics['completed_phases'])
@@ -116,27 +116,31 @@ class ReviewPipelineTests(unittest.TestCase):
         from job_radar_ai.reporting import coverage
         result = coverage(jobs, diagnostics)
         self.assertEqual(result['selected'], 24)
-        self.assertEqual(result['assessed'], 2)
-        self.assertEqual(result['pending'], 22)
+        self.assertEqual(result['assessed'], 22)
+        self.assertEqual(result['pending'], 2)
 
     def test_invocation_budget_reports_incomplete_coverage_without_losing_valid_batch(self):
         ai = ReviewAI()
-        # Brief, discovery, triage, then exactly one successful assessment batch.
+        # Brief, discovery, one triage packet, then three assessment packets.
+        # The bounded two extra triage slots are unchanged, but later triage no
+        # longer consumes them before the first packet reaches assessment.
         with patch('job_radar_ai.session_search.MAX_AI_CALLS', 4):
             jobs, run = self.execute(ai)
-        self.assertEqual(ai.assessment_calls, 1)
+        self.assertEqual(ai.assessment_calls, 3)
         self.assertEqual(len(jobs), 24)
-        self.assertEqual(sum(bool(j.get('preliminary', {}).get('signature')) for j in jobs), 2)
-        self.assertTrue(all(j.get('description_source', {}).get('kind') == 'public_verified' for j in jobs))
+        self.assertEqual(sum(bool(j.get('preliminary', {}).get('signature')) for j in jobs), 6)
+        self.assertEqual(sum(j.get('description_source', {}).get('kind') == 'public_verified' for j in jobs),8)
         self.assertEqual(run['status'], 'partial')
         diagnostics = run['payload']['diagnostics']
         self.assertNotIn('evaluation', diagnostics['completed_phases'])
         pending = [j for j in jobs if not j.get('preliminary', {}).get('signature')]
-        self.assertTrue(all(j.get('review_state', {}).get('reason') == 'evaluation_budget' for j in pending))
+        self.assertEqual(sum(j['review_state']['reason']=='evaluation_budget' for j in pending),2)
+        self.assertEqual(sum(j['review_state']['reason']=='triage_error' for j in pending),0,'No failed call was started for deferred work')
+        self.assertEqual(sum(j['review_state']['reason']=='triage_budget' for j in pending),16)
         from job_radar_ai.reporting import coverage
         result = coverage(jobs, diagnostics)
-        self.assertEqual(result['assessed'], 2)
-        self.assertEqual(result['pending'], 22)
+        self.assertEqual(result['assessed'], 6)
+        self.assertEqual(result['pending'], 18)
 
     def test_one_invalid_quote_keeps_other_assessments_and_is_not_counted_as_assessed(self):
         ai = ReviewAI(invalid_first=True)
@@ -151,6 +155,18 @@ class ReviewPipelineTests(unittest.TestCase):
         self.assertEqual(result['needs_verification'], 1)
         self.assertEqual(result['pending'], 0)
         self.assertEqual(run['status'], 'partial')
+
+    def test_later_budget_exhaustion_does_not_overwrite_an_exact_prior_timeout(self):
+        ai=ReviewAI(fail_second=True)
+        with patch('job_radar_ai.session_search.MAX_AI_CALLS',4):
+            jobs,run=self.execute(ai)
+        self.assertEqual(sum(j.get('evaluation_status')=='assessed' for j in jobs),4)
+        pending=[j for j in jobs if j.get('evaluation_status')!='assessed']
+        self.assertEqual(sum(j['review_state']['reason']=='evaluation_timeout' for j in pending),2)
+        self.assertEqual(sum(j['review_state']['reason']=='evaluation_budget' for j in pending),2)
+        self.assertEqual(sum(j['review_state']['reason']=='triage_budget' for j in pending),16)
+        self.assertEqual(ai.assessment_calls,3)
+        self.assertEqual(run['status'],'partial')
 
     def test_snippets_remain_source_pending_without_final_assessment_calls(self):
         ai = ReviewAI(snippets_only=True)

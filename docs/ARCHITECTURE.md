@@ -8,30 +8,50 @@ Old workers cannot write into replacement sessions. Private anonymous briefs are
 cached by knowledge signature before web research; raw career text and CV experience
 records stay in private inference. Exact source/employer requisitions outrank URL
 tracking differences; ID-less matches require corroborating content. Triage precedes
-costly description recovery and assessment. Compact triage packets are attempted
-before source enrichment; failures remain pending without stopping other packets.
+costly description recovery and assessment within each small round. Each compact
+triage packet reaches source enrichment, bounded assessment and immediate decision
+persistence before another packet or discovery call. Failures remain pending without
+stopping independent packets; no discovery-wide or triage-wide barrier remains.
 Shared private context and expected decision output bound each packet to eight jobs.
 Triage calls use at most 30 seconds and 60% of the existing enrichment window,
 preserving time for source verification. Additional packet slots are separately
 bounded and reported so splitting does not consume the assessment allowance.
-Stored AI priority order controls verification and assessment within the existing
-deterministic packet merge.
-Each selected market gets one primary discovery pass, with broader avenues explicitly
-deferred. Observed job-specific publisher sources precede consented LinkedIn detail
+Stored AI priority order controls verification and assessment within each ready packet.
+The existing coordinator visits selected markets round-robin, then rotates their
+explicit employer priorities before optional broader avenues. Country discovery slots
+and elapsed-time shares cannot be consumed by optional assessment/guidance work.
+Unvisited employer focuses are recorded as incomplete, not searched successfully.
+Public discovery has an eight-job wire bound. Private `research_guidance` receives
+the actual scoped profile and bounded previous findings, then emits only anonymous
+capabilities, gaps, unsuccessful queries, missing sources and next queries. Public
+research never receives raw CV, feedback, assessment or application-history objects.
+Obvious private echoes are rejected before public transfer. Guidance failure does
+not retry that call or discard mandatory country/employer visits.
+One global deadline and cumulative phase-spent ledgers retain the existing
+600/150/150-second allocations; guidance consumes discovery time. Round reentry
+cannot restore spent time. Local timeouts retain their exact failed job identities
+while later independent assessments advance. Publisher-wide restrictions and
+provider-wide authentication/access failures remain effective.
+Observed job-specific publisher sources precede consented LinkedIn detail
 requests. Only active verified full descriptions enter final assessment, at most two
 per call, with long descriptions isolated rather than truncating their requirements.
 Observed alternate publication URLs and page-read bodies are retained separately
 from snippets. Ready HTML/JobPosting pages share the controlled recovery identity gate
 and retain their observation time. Source selection, access, parsing and identity
 outcomes remain distinct; no missing URL is replaced by a guessed address or a new
-per-job AI search. Unverified selected text keeps enrichment incomplete.
+per-job AI call. Focused later discovery can supply new observed pages for a pending
+exact identity. Only changed observed bytes/normalized URLs reopen its review;
+new timestamps and tracking parameters do not retry unchanged work.
+Unverified selected text keeps enrichment incomplete.
 Assessment batches contain only consecutive jobs in global priority order sharing
 the same market and verified/inferred country scope. A scope change ends the current
 batch; a later job from the earlier market cannot jump ahead of intervening candidates.
 Each invalid assessment is withheld
 independently; old recommendations cannot remain active after failed verification.
 The browser has Recommended and All Opportunities, with a separate previous-leads
-section. Earlier coordinators and acceptance documents below are historical references.
+section and a comparison of saved, validated AI judgments. Comparison adds no new
+career scores or claims; its signature must still match the current assessment.
+Earlier coordinators and acceptance documents below are historical references.
 
 # V5 architecture
 

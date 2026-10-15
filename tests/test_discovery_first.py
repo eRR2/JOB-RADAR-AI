@@ -22,12 +22,12 @@ class DiscoveryFirstTests(unittest.TestCase):
         SessionSearch(self.root,store).execute(run,threading.Event(),ai=ai,fetcher=fetch,market_id=market)
         return self.store.runs()[0]['payload']
 
-    def test_all_markets_discovery_precedes_enrichment_and_evaluation(self):
+    def test_first_market_reaches_assessment_before_next_market_discovery(self):
         ai=fixtures.VerifiedScriptedAI();payload=self.run_search(ai)
         stages=[k for k,_,_,_ in ai.calls]
         discoveries=[i for i,k in enumerate(stages) if k=='research_v5']
-        self.assertLess(max(discoveries),stages.index('enrichment'))
-        self.assertLess(max(discoveries),stages.index('priority_v52'))
+        self.assertLess(stages.index('enrichment'),max(discoveries))
+        self.assertLess(stages.index('priority_v52'),max(discoveries))
         self.assertEqual({c['market']['id'] for k,_,c,_ in ai.calls if k=='research_v5'},{'DE','NL'})
         self.assertNotIn('session_strategy',stages)
         self.assertEqual(stages.count('session_brief'),1)
@@ -62,8 +62,11 @@ class DiscoveryFirstTests(unittest.TestCase):
                 return super().run(kind,task,context,**opts)
         payload=self.run_search(TimeoutAI())
         self.assertEqual(len(self.store.jobs()),2)
-        d=payload['diagnostics'];self.assertEqual(d['stop']['phase'],'evaluation')
-        self.assertEqual(d['ai_calls'][-1]['timeout_category'],'provider_call_timeout')
+        d=payload['diagnostics']
+        failed=next(c for c in d['ai_calls'] if c['status']=='failed')
+        self.assertEqual(failed['phase'],'evaluation')
+        self.assertEqual(failed['timeout_category'],'provider_call_timeout')
+        self.assertTrue(any(c['kind']=='research_v5' and c['country']=='Netherlands' for c in d['ai_calls']))
         self.assertNotIn(CV,json.dumps(d));self.assertGreaterEqual(d['elapsed_seconds'],0)
 
     def test_brief_reused_when_knowledge_unchanged(self):

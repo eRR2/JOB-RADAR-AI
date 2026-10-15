@@ -28,6 +28,7 @@ class ScriptedAI:
         self.calls.append((kind,task,context,kwargs))
         self.telemetry={}
         if kind=='session_brief':return dict(background=['Electrical systems architecture and team leadership'],direction='Broader technical ownership',country_preferences=[])
+        if kind=='research_guidance':return dict(focus='Observed system ownership',transferable_capabilities=['System architecture'],specialist_gaps=[],unsuccessful_queries=[],missing_sources=[],next_queries=[],continue_research=False)
         if kind=='session_strategy':return dict(strategy='Actual capabilities and credible progression',role_families=['Technical ownership'],markets=[dict(market_id=m['id'],linkedin_queries=[],web_queries=['Systems ownership '+m['country']]) for m in context['markets']])
         if kind=='enrichment':return dict(candidate_ids=[j['id'] for j in context['jobs']],reason='Observed ownership evidence')
         if kind=='research_v5':

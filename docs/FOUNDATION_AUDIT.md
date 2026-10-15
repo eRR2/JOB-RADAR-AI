@@ -488,3 +488,90 @@ Final verification: **326 Python tests and 18 offline DOM tests passed**, no fai
 errors or skips. The unchanged launcher fixture passed with the dashboard closed.
 Compilation, JavaScript syntax and whitespace checks passed. Full logical contents
 of every user database table matched the pre-task snapshot after shutdown and replay.
+
+## Small research rounds after 492fb08
+
+The prior coordinator had two scheduling barriers: every market was discovered
+before triage, and every triage packet preceded any source work. Its phase entry
+also allocated a fresh phase window. Reusing that transition in a round loop would
+silently renew the 150-second source/evaluation allowances.
+
+`SessionSearch` now owns one sequential loop. A focused web call has an eight-job
+wire limit; each triage packet reaches source verification and at-most-two-job
+assessment before the next packet or discovery. Each validated assessment is saved
+immediately through the existing independent quotation validator. No second engine,
+new framework, occupational classifier, retry or provider fallback was added.
+The 492fb08 compact input/output limits and 30-second triage calls remain.
+
+The actual CV and next-career request enter private brief, triage, assessment and
+guidance inference. `research_guidance` distills previous observed findings into
+anonymous capabilities, specialist gaps, unsuccessful queries, missing sources and
+next queries; only that validated result reaches public research. An obvious private
+echo is refused in both initial/cached briefs and round guidance; an unsafe initial
+brief is neither cached nor forwarded. Source/CV quotations and application history objects are never
+copied into the web context. Employer focus comes only from explicit saved priorities,
+with country scope retained. Required country visits precede optional expansion;
+other explicit employer focuses remain queued even if the first employer is productive.
+Diagnostics record requested focuses and unvisited priorities, not fictitious access
+or successful company coverage. A private-guidance failure leaves mandatory visits
+possible using the existing anonymous brief and distinct employer focus.
+
+One global deadline and cumulative per-phase ledgers retain the original 900-second
+total and 600/150/150-second allocations, scaled only by the existing duration input.
+Guidance consumes discovery allowance; round transitions cannot refund time. Fair
+country shares and reserved discovery invocations prevent optional work from taking
+an unvisited country's allocation. A local round-share expiry does not cancel another
+country's reserved share. Actual budget exhaustion remains explicit partial work.
+
+The obsolete
+`test_global_triage_finishes_before_source_work_and_preserves_ai_order` assertion is
+replaced by
+`test_first_packet_reaches_sources_before_remaining_triage_and_preserves_ai_order`:
+the first source now requires its eight-job packet to be triaged, rather than all 73.
+All 73 observations must still be retained and eventually triaged; the declared AI
+source order, eight-job bound, strict identity and quotation assertions remain.
+The country-order regression still requires DE-1, NL-2, NL-3, DE-4. A timeout of the
+middle NL packet now leaves those exact jobs pending while independent DE-4 advances.
+Likewise, the 24-job timeout fixture requires 22 valid assessments and exactly two
+pending failed identities, rather than treating the timeout as a reason to stop all
+remaining assessment calls. No test is skipped and no evidence gate is relaxed.
+
+New observed bytes/normalized source URLs can reopen an exact pending identity when
+a later focused round finds its full page. Mere timestamps/tracking changes cannot
+retry unchanged work. The saved page still passes the existing identity/parser gate.
+Unique candidate/source diagnostics are derived from records, so repeat evidence
+review does not inflate counts. Exact application/rejection history and country-scoped
+feedback boundaries remain. The final comparison copies saved AI judgments only,
+excludes pending/stale/unverified records, and binds each row to its assessment signature.
+
+Observed **synthetic** success trace:
+
+```text
+session_brief
+research_v5(DE) -> enrichment -> verify_recorded_page -> priority_v52 -> persist_assessment
+research_guidance(NL)
+research_v5(NL) -> enrichment -> verify_recorded_page -> priority_v52 -> persist_assessment
+research_guidance(DE)
+research_v5(DE, next employer focus) -> enrichment -> verify_recorded_page -> priority_v52 -> persist_assessment
+```
+
+The controlled middle-triage timeout trace retains the first assessment, records the
+failed NL packet once, then reaches source verification and durable assessment in
+the next DE round. A separate clock fixture consumes exactly 150 evaluation seconds
+across three rounds and retains two valid results when the last call times out;
+reentering evaluation grants no extra time. Recorded-page recovery completes a prior
+snippet's exact identity without inventing another URL.
+
+These fixtures produce **zero real research or career assessments**. Live acceptance,
+missing real employer publications and original closed-channel source questions
+remain owner-led follow-up work. No user-record migration or repair is part of this change.
+
+The mixed timeout/budget fixture also preserves the exact timed-out identities when
+a later call-budget stop occurs; the final stop reason cannot overwrite their cause.
+
+Verification for this change: **340 Python tests and 19 offline DOM tests passed**,
+with no failures, errors or skipped tests. The unchanged launcher regression passed
+with the dashboard closed. Compilation, JavaScript syntax and diff whitespace checks
+passed. All user SQLite tables matched the read-only pre-change logical digest.
+The comparison UI has offline DOM coverage; no live browser/visual acceptance or
+live research success is claimed.

@@ -52,7 +52,7 @@ class VerificationFlowTests(unittest.TestCase):
         self.assertNotIn('experience',sent['intent'])
         self.assertEqual(profile['intent']['experience'][0]['quote'],CV)
 
-    def test_global_triage_finishes_before_source_work_and_preserves_ai_order(self):
+    def test_first_packet_reaches_sources_before_remaining_triage_and_preserves_ai_order(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);store=Store(root/'state.sqlite3',v5=True)
             store.set('profile',{**copy.deepcopy(PROFILE),'markets':PROFILE['markets'][:1]})
@@ -79,7 +79,9 @@ class VerificationFlowTests(unittest.TestCase):
             ai=RankedAI();attempts=[]
             def recover(job,*args):
                 attempts.append(job['id'])
-                self.assertEqual(len(ai.triaged),73)
+                # The small-round contract deliberately replaces the old 73-job
+                # barrier. Only this packet must be triaged before its sources.
+                self.assertEqual(len(ai.triaged),8)
                 return dict(description=full_job()['description'],source_url=job['url'],evidence={'sha256':'synthetic'},title=job['title'],company=job['company'],location=job['location'])
             with patch('job_radar_ai.session_search.recover',side_effect=recover),patch('job_radar_ai.session_search.linkedin_state',return_value={'state':'available'}):
                 run=store.start_run('codex')

@@ -104,6 +104,20 @@ function researchDiagnostics(){
     el('h3',{},'Discarded candidates'),table(['URL','Reason'],(d.discarded_candidates||[]).map(r=>[r.url,r.reason])),
     ...(run.payload.warnings||[]).map(w=>el('p',{class:'muted'},w)));
 }
+function opportunityComparison(){
+  const rows=(state.runs[0]?.payload?.comparison||[]).map(row=>({row,job:state.jobs.find(j=>j.id===row.job_id)}))
+    .filter(({row,job})=>job&&review(job).status==='assessed'&&!job.preliminary_stale&&job.preliminary?.signature&&
+      row.assessment_signature===job.preliminary.signature&&
+      ['public_verified','linkedin'].includes(job.description_source?.kind)&&job.description?.length>=100);
+  if(!rows.length)return null;
+  const headers=['Opportunity','Priority','Why this next move','Material gaps','Authority','Trade-offs'];
+  const body=rows.map(({row,job})=>el('tr',{},[job.title,row.priority,row.next_step,
+    (row.gaps||[]).join('; ')||'None reported',row.authority||'Not established',row.tradeoffs||'None reported'].map(t=>el('td',{},t))));
+  return el('section',{class:'panel opportunity-comparison'},el('h2',{},'Compare assessed opportunities'),
+    el('p',{class:'muted'},'Saved AI judgments from verified source text. Pending assessments are listed separately.'),
+    el('div',{class:'report-history'},el('table',{},
+      el('thead',{},el('tr',{},headers.map(t=>el('th',{scope:'col'},t)))),el('tbody',{},body))));
+}
 function discover(){
   const incomplete=state.runs[0]?.status!=='completed'&&(reviewCounts().pending||reviewCounts().needs_verification||state.runs[0]?.payload.provider_error);
   let jobs=state.jobs.filter(j=>j.shortlist_status!=='low_relevance' && review(j).status==='assessed' &&
@@ -121,6 +135,7 @@ function discover(){
     el('div',{class:'tabs result-tabs',role:'group','aria-label':'Search results'},...[["recommended","Recommended"],["all","All Opportunities"]].map(([id,title])=>button(title,()=>{tab=id;render();},id===tab?'active':''))),
     el('h2',{},tab==='all'?'Assessed opportunities':'Fresh reasoned opportunities'),
     jobs.length?el('div',{class:'job-grid'},jobs.map(card)):el('div',{class:'empty'},el('h3',{},incomplete?'Assessment could not be completed':state.jobs.length?'No strong recommendations established yet':'Ready for a fresh search'),el('p',{},incomplete?'Research is incomplete; suitability has not been established for pending candidates. Previously verified opportunities remain available below.':state.jobs.length?'All discovered vacancies remain under All Opportunities. Weak matches are not promoted to fill this view.':state.cv.text?'Your saved CV and career goals are ready. Search with AI starts a fresh research session.':'Upload your CV and describe your next step in My next move.')),
+    opportunityComparison(),
     lower.length?el('details',{class:'panel'},el('summary',{},'Lower-relevance discoveries ('+lower.length+')'),
       el('p',{class:'muted'},'Observed source listings not selected for career-fit review. No automatic recommendation.'),
       ...lower.map(card)):null,
