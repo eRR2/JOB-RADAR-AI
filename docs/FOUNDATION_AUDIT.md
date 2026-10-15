@@ -575,3 +575,29 @@ with the dashboard closed. Compilation, JavaScript syntax and diff whitespace ch
 passed. All user SQLite tables matched the read-only pre-change logical digest.
 The comparison UI has offline DOM coverage; no live browser/visual acceptance or
 live research success is claimed.
+
+## Nullable shortlist rank follow-up to 695663d
+
+The new mixed-triage coordinator regression reproduces a retained explicit JSON null
+rank alongside a selected rank zero. The first verified assessment is saved, but the
+next country's research never starts: building `source_gaps` sorts the whole pool
+before filtering and compares `None` with an integer. Normal upserts ignore incoming
+None, so the fixture explicitly seeds this older payload shape in a synthetic DB;
+no user record is repaired or rewritten.
+
+Source gaps now filter active, selected, source-pending candidates before sorting.
+The shared sorter treats explicit None like an absent rank, preserving numeric zero
+and deterministic ID ties without mutating stored ranks. The other coordinator source
+and assessment call sites already filter their candidate sets; `assessment_batches`
+also uses the shared sorter and now has explicit mixed-ready/partial None coverage.
+The coordinator regression requires the next NL research call to observe the first
+assessment already persisted, the evidence-backed rejected job to remain retained,
+and only the selected source-pending identity to appear in source gaps. A sorter spy
+also requires the rejected identity to be filtered out before any sorting call.
+No new research architecture, retry or evidence-rule change is involved.
+
+All three added regressions failed before the fix and passed afterward. Full offline
+verification passed **343 Python tests**, without skips; compilation and whitespace
+checks passed. The dashboard was already closed for the unchanged launcher test.
+All user SQLite tables matched the read-only pre-test digest. No live research or
+user-record changes were performed.

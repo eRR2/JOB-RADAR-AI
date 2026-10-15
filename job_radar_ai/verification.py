@@ -15,7 +15,10 @@ def triage_output_size(jobs):
 
 
 def ranked_candidates(jobs):
-    return sorted(jobs,key=lambda j:(j.get('shortlist_rank',10**9),j['id']))
+    def priority(job):
+        rank=job.get('shortlist_rank')
+        return (10**9 if rank is None else rank,job['id'])
+    return sorted(jobs,key=priority)
 
 
 def triage_batches(jobs,shared_chars=0):

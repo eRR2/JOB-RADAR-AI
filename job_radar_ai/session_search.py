@@ -719,7 +719,8 @@ class SessionSearch(Hunter):
                         'priority_employers':(priorities[n:]+priorities[:n])[:8],
                         'previous_queries':sorted(queries),'known_postings':[{'id':j['id'],'url':j['url']} for j in self.store.jobs()],
                         'source_gaps':[{'id':j['id'],'url':j['url'],'description_sources':j.get('description_sources',[])}
-                            for j in ranked_candidates(self.store.jobs()) if active(j) and j.get('shortlist_status')=='selected' and not verified_description(j)][:8],
+                            for j in ranked_candidates([j for j in self.store.jobs()
+                                if active(j) and j.get('shortlist_status')=='selected' and not verified_description(j)])][:8],
                         'next_avenues':avenues[m['id']],'restricted_publishers':self.store.access_restrictions(),'linkedin_access':linkedin_state(self.store),'linkedin_stop':self.store.get('linkedin_stop')},True,max(1,visit_end-time.monotonic()))
                     telemetry=ai.telemetry
                     if not telemetry.get('web_calls') or telemetry.get('research_unverified'):raise ProviderError('No genuine web-tool observations; model-only discoveries refused.','unverified_research')

@@ -25,6 +25,20 @@ def decision(identity='linkedin:123456'):
 
 
 class VerificationFlowTests(unittest.TestCase):
+    def test_explicit_none_rank_is_unranked_and_zero_keeps_first_priority(self):
+        from job_radar_ai.verification import ranked_candidates
+        jobs=[dict(id='a-none',shortlist_rank=None),dict(id='b-missing'),
+              dict(id='z-zero',shortlist_rank=0),dict(id='one',shortlist_rank=1),dict(id='a-zero',shortlist_rank=0)]
+        original=copy.deepcopy(jobs)
+        self.assertEqual([j['id'] for j in ranked_candidates(jobs)],['a-zero','z-zero','one','a-none','b-missing'])
+        self.assertEqual(jobs,original,'Sorting must not rewrite retained rank values')
+
+    def test_assessment_batches_accept_explicit_none_rank_among_ready_and_partial_jobs(self):
+        from job_radar_ai.verification import assessment_batches
+        jobs=[{**full_job('none'),'shortlist_rank':None},{**full_job('zero'),'shortlist_rank':0},
+              dict(id='partial',shortlist_rank=None)]
+        self.assertEqual([[j['id'] for j in group] for group in assessment_batches(jobs)],[['zero','none']])
+
     def test_strong_recommendation_requires_verified_description_and_duty_quote(self):
         snippet=dict(id='linkedin:123456',title='Architecture Lead',source_observations=[{'text':'Own electrical system architecture.'}])
         self.assertFalse(prepare(decision(),snippet,{'cv_text':CV},[])['recommend'])

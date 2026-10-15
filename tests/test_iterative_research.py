@@ -106,6 +106,71 @@ class IterativeResearchTests(unittest.TestCase):
         self.assertEqual(len(failed),1)
         self.assertEqual(len({tuple(c['job_ids']) for c in run['payload']['diagnostics']['ai_calls'] if c['kind']=='enrichment'}),3)
 
+    def test_low_relevance_none_rank_does_not_block_next_country_or_enter_source_gaps(self):
+        store=self.store
+        store.upsert_job({'id':'linkedin:123457','url':'https://www.linkedin.com/jobs/view/123457',
+            'source':'LinkedIn','source_id':'123457','title':'Architecture Lead','company':'Synthetic','location':'Berlin, Germany'})
+        # Represent an explicit JSON null retained from older records. The normal
+        # upsert deliberately ignores incoming None, so seed only this synthetic DB.
+        with store.db() as db:
+            row=db.execute('SELECT payload FROM jobs WHERE id=?',('linkedin:123457',)).fetchone()
+            payload=json.loads(row[0]);payload['shortlist_rank']=None
+            db.execute('UPDATE jobs SET payload=? WHERE id=?',(json.dumps(payload),'linkedin:123457'))
+        class MixedAI(fixtures.VerifiedScriptedAI):
+            markets=[]
+            next_source_gaps=None
+            def run(inner,kind,task,context,**opts):
+                if kind=='research_v5':
+                    inner.markets.append(context['market']['id'])
+                    if len(inner.markets)>1:
+                        first=next(j for j in store.jobs() if j['id']=='linkedin:123456')
+                        self.assertEqual(first.get('evaluation_status'),'assessed')
+                        self.assertTrue(first['preliminary']['signature'])
+                        inner.next_source_gaps=context['source_gaps']
+                        inner.calls.append((kind,task,context,opts));inner.telemetry={'web_calls':1,'observations':[]}
+                        return dict(jobs=[],summary='No additional synthetic vacancies',limitations=[],continue_research=False,next_avenues=[])
+                    result=super().run(kind,task,context,**opts)
+                    pending=fixtures.candidate(123458)
+                    result['jobs'].append(pending)
+                    inner.telemetry['observations'].append(dict(url=pending['url'],title=pending['title'],
+                        snippet='Synthetic Berlin, Germany. Own electrical system architecture.'))
+                    result.update(continue_research=False,next_avenues=[])
+                    return result
+                if kind=='enrichment':
+                    inner.calls.append((kind,task,context,opts));inner.telemetry={}
+                    return dict(candidate_ids=['linkedin:123456','linkedin:123458'],reason='Observed responsibilities',
+                        decisions=[dict(job_id=j['id'],action='low_relevance' if j['id']=='linkedin:123457' else 'verify',
+                            basis='observed_mismatch' if j['id']=='linkedin:123457' else 'unknown',
+                            reason='Mandatory optical lens specialism differs from demonstrated systems ownership' if j['id']=='linkedin:123457' else 'Verify architecture responsibilities',
+                            transferable_fit='',specialist_gap='',missing_information=[],
+                            source_quote='Main responsibility: optical lens design requiring specialist optics experience.' if j['id']=='linkedin:123457' else '')
+                            for j in context['jobs']])
+                return super().run(kind,task,context,**opts)
+        from job_radar_ai import session_search
+        ai=MixedAI();sort_inputs=[];sort_errors=[]
+        original=session_search.ranked_candidates
+        def ranked(jobs):
+            sort_inputs.append([j['id'] for j in jobs])
+            try:return original(jobs)
+            except TypeError as exc:
+                sort_errors.append(str(exc));raise
+        run=store.start_run('codex')
+        with patch('job_radar_ai.session_search.ranked_candidates',side_effect=ranked):
+            SessionSearch(self.root,store).execute(run,threading.Event(),ai=ai,
+                fetcher=PublicFetcher(store,request=lambda _:self.fail('No live source')))
+        jobs={j['id']:j for j in store.jobs()}
+        self.assertEqual(jobs['linkedin:123456']['evaluation_status'],'assessed')
+        self.assertEqual(jobs['linkedin:123456']['shortlist_rank'],0)
+        self.assertEqual(jobs['linkedin:123457']['shortlist_status'],'low_relevance')
+        self.assertIsNone(jobs['linkedin:123457']['shortlist_rank'])
+        self.assertEqual(jobs['linkedin:123457']['triage_decision']['basis'],'observed_mismatch')
+        self.assertEqual(ai.markets,['DE','NL'],f'Next country never started; sort errors: {sort_errors}')
+        self.assertEqual([j['id'] for j in ai.next_source_gaps],['linkedin:123458'])
+        self.assertFalse(any('linkedin:123457' in ids for ids in sort_inputs),'Filter discarded records BEFORE sorting')
+        self.assertFalse(sort_errors)
+        self.assertEqual(len(jobs),3)
+        self.assertEqual(store.runs()[0]['status'],'partial','Missing source evidence remains explicit')
+
     def test_phase_reentry_consumes_one_shared_ledger_and_total_deadline(self):
         clock=[0.0]
         with patch('job_radar_ai.session_search.time.monotonic',side_effect=lambda:clock[0]):
